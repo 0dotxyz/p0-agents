@@ -1,6 +1,5 @@
 node_modules/
-dist/
-.astro/
+.next/
 .env
 *.log
 .DS_Store

@@ -1,6 +1,6 @@
 ---
 name: p0-credit
-version: 1.2.0
+version: 1.3.0
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
@@ -42,64 +42,57 @@ Use the public HTTP APIs for read-only tasks. No SDK, no wallet, no RPC needed.
 
 ### Banks endpoint
 
-`GET https://app.0.xyz/api/banks/db`
+`GET https://agents.0.xyz/api/banks`
 
-Returns every lending pool (bank) with rates, metadata, and pricing.
+Returns every lending pool (bank) with rates, metadata, and pricing. Only
+collateral-tier banks are included (isolated banks are filtered out). The
+response is a lightweight projection (9 fields per bank) with deposit APY
+pre-computed.
 
 ```typescript
-const res = await fetch("https://app.0.xyz/api/banks/db");
+const res = await fetch("https://agents.0.xyz/api/banks");
 const banks = await res.json();
 ```
 
-**Key fields per bank:**
+**Fields per bank:**
 
-| Field                  | Description                                         |
-| ---------------------- | --------------------------------------------------- |
-| `bank_address`         | On-chain bank address (use with SDK `client.getBank()`) |
-| `symbol`               | Token symbol (SOL, USDC, JitoSOL, ...)              |
-| `mint`                 | Token mint address                                  |
-| `mint_decimals`        | Token decimal places (9 for SOL, 6 for USDC)        |
-| `venue`                | Lending venue (P0, Kamino, Drift)                   |
-| `asset_tag`            | Venue tag (0=P0 default, 1=SOL, 2=Staked, 3=Kamino, 4=Drift) |
-| `risk_tier`            | Collateral or Isolated                              |
-| `deposit_rate_pct`     | Deposit APY as percentage                           |
-| `borrow_rate_pct`      | Borrow APY as percentage                            |
-| `mint_avg_apy`         | Underlying token yield (e.g. LST staking rate)      |
-| `max_mint_apy`         | Cap on underlying token yield                       |
-| `usd_price`            | Oracle price in USD                                 |
-| `token_program_address`| Token program (TOKEN_PROGRAM_ID or TOKEN_2022)      |
+| Field           | Description                                              |
+| --------------- | -------------------------------------------------------- |
+| `bank_address`  | On-chain bank address (use with SDK `client.getBank()`)  |
+| `symbol`        | Token symbol (SOL, USDC, JitoSOL, ...)                   |
+| `mint`          | Token mint address                                       |
+| `mint_decimals` | Token decimal places (9 for SOL, 6 for USDC)             |
+| `venue`         | Lending venue (P0, Kamino, Drift)                        |
+| `deposit_apy`   | Effective deposit APY as percentage (pre-computed, includes underlying yield) |
+| `borrow_apy`    | Borrow APY as percentage                                 |
+| `usd_price`     | Oracle price in USD                                      |
+| `token_program` | Token program (TOKEN_PROGRAM_ID or TOKEN_2022)           |
 
-**Computing effective deposit APY:**
+The `deposit_apy` field already includes underlying token yield (e.g. LST staking
+rates). No manual computation needed -- just sort by `deposit_apy` descending.
 
-```
-effective_deposit_apy = deposit_rate_pct + min(mint_avg_apy, max_mint_apy)
-```
-
-For most tokens `mint_avg_apy` is 0. For LSTs (JitoSOL, mSOL, bSOL) it includes
-the staking yield. `max_mint_apy` caps outlier values -- use it when present.
-
-If `*_rate_pct` fields are missing, fall back to `deposit_rate` or `borrow_rate`
-(decimals, e.g. 0.05 = 5%) and multiply by 100.
+**Borrowing is only available on P0 venue banks.** Kamino and Drift banks are
+deposit-only -- you can earn yield on them but cannot borrow from them. When
+looking for borrow opportunities, filter to `venue === "P0"`.
 
 **Finding best deposit yields (top 10):**
 
-Sort banks by `effective_deposit_apy` descending.
+Sort banks by `deposit_apy` descending.
 
 **Finding cheapest stablecoin borrows:**
 
-Filter where `symbol` is in `[USDC, USDT, USDG, USDS, HYUSD]`, sort by
-`borrow_rate_pct` ascending.
+Filter where `venue` is `"P0"` and `symbol` is in `[USDC, USDT, USDG, USDS, HYUSD]`,
+sort by `borrow_apy` ascending.
 
 ### Strategies endpoint
 
-`GET https://app.0.xyz/api/strategies`
+`GET https://agents.0.xyz/api/strategies`
 
 Returns precomputed strategies with APYs and leverage.
 
 ```typescript
-const res = await fetch("https://app.0.xyz/api/strategies");
-const { data } = await res.json();
-const strategies = data.strategies || [];
+const res = await fetch("https://agents.0.xyz/api/strategies");
+const strategies = await res.json();
 ```
 
 **Key fields per strategy:**
@@ -145,13 +138,13 @@ const solArbs = strategies
 banks API:
 
 ```typescript
-const banksRes = await fetch("https://app.0.xyz/api/banks/db");
+const banksRes = await fetch("https://agents.0.xyz/api/banks");
 const banksData = await banksRes.json();
 const banksByAddress = Object.fromEntries(banksData.map((b) => [b.bank_address, b]));
 
 const depositBankInfo = banksByAddress[strategy.primaryBankAddress];
 const borrowBankInfo = banksByAddress[strategy.secondaryBankAddress];
-// depositBankInfo.symbol, depositBankInfo.mint, depositBankInfo.deposit_rate_pct, etc.
+// depositBankInfo.symbol, depositBankInfo.mint, depositBankInfo.deposit_apy, etc.
 ```
 
 ---
@@ -276,32 +269,23 @@ Banks are lending pools. Use the banks API to discover banks, then
 import { PublicKey } from "@solana/web3.js";
 
 // Fetch bank metadata from the API
-const banksRes = await fetch("https://app.0.xyz/api/banks/db");
+const banksRes = await fetch("https://agents.0.xyz/api/banks");
 const banksData = await banksRes.json();
 
 // Find a specific bank (e.g. highest-yield SOL bank)
 const solBanks = banksData
   .filter((b) => b.symbol === "SOL")
-  .sort((a, b) => b.deposit_rate_pct - a.deposit_rate_pct);
+  .sort((a, b) => b.deposit_apy - a.deposit_apy);
 const bestSolBank = solBanks[0];
 
 // Get the SDK Bank object for on-chain operations
 const bankObject = client.getBank(new PublicKey(bestSolBank.bank_address));
 ```
 
-**AssetTag values (from the `asset_tag` field):**
+**Asset group comingling rules (critical):**
 
-| Tag | Value | Venue / Usage                   |
-| --- | ----- | ------------------------------- |
-| 0   | DEFAULT | P0 native (stablecoins)       |
-| 1   | SOL     | P0 native (SOL)              |
-| 2   | STAKED  | P0 native (LSTs)             |
-| 3   | KAMINO  | Kamino                        |
-| 4   | DRIFT   | Drift                         |
-
-**Comingling rules (critical):**
-
-A single P0 account cannot mix all asset types. The on-chain program enforces:
+A single P0 account cannot mix all asset types. Banks are grouped internally
+as DEFAULT (stablecoins), SOL, or STAKED (LSTs). The on-chain program enforces:
 
 | Account contains | Can also hold       | Cannot hold |
 | ---------------- | ------------------- | ----------- |
@@ -313,7 +297,7 @@ A single P0 account cannot mix all asset types. The on-chain program enforces:
 
 SOL acts as a bridge -- it can coexist with either DEFAULT or STAKED, but once
 an account holds both SOL and DEFAULT positions, STAKED is locked out (and vice
-versa). KAMINO and DRIFT banks route through separate instruction sets and are
+versa). Kamino and Drift banks route through separate instruction sets and are
 implicitly isolated.
 
 Violating these rules produces on-chain error `6047` (`assetTagMismatch`).
@@ -505,7 +489,7 @@ const netApy = wrappedAccount.computeNetApy();
 
 ```typescript
 // Fetch bank metadata for human-readable output
-const banksRes = await fetch("https://app.0.xyz/api/banks/db");
+const banksRes = await fetch("https://agents.0.xyz/api/banks");
 const banksData = await banksRes.json();
 const bankInfoByAddress = Object.fromEntries(
   banksData.map((b) => [b.bank_address, b])
@@ -691,15 +675,15 @@ const solBalance = await connection.getBalance(wallet.publicKey);
 console.log(`SOL balance: ${solBalance / 1e9}`);
 
 // --- 2. Find the best deposit yield ---
-const banksRes = await fetch("https://app.0.xyz/api/banks/db");
+const banksRes = await fetch("https://agents.0.xyz/api/banks");
 const banksData = await banksRes.json();
 
 // Best SOL deposit yield
 const solBanks = banksData
   .filter((b) => b.symbol === "SOL")
-  .sort((a, b) => b.deposit_rate_pct - a.deposit_rate_pct);
+  .sort((a, b) => b.deposit_apy - a.deposit_apy);
 const bestSolBank = solBanks[0];
-console.log(`Best SOL yield: ${bestSolBank.deposit_rate_pct.toFixed(2)}% on ${bestSolBank.venue}`);
+console.log(`Best SOL yield: ${bestSolBank.deposit_apy.toFixed(2)}% on ${bestSolBank.venue}`);
 
 // --- 3. Initialize P0 client and load/create account ---
 const client = await Project0Client.initialize(connection, getConfig("production"));
@@ -745,11 +729,10 @@ console.log(`SOL balance: ${solBalance / 1e9}`);
 
 // --- 2. Find the best SOL/LST strategy ---
 const [strategiesRes, banksRes] = await Promise.all([
-  fetch("https://app.0.xyz/api/strategies"),
-  fetch("https://app.0.xyz/api/banks/db"),
+  fetch("https://agents.0.xyz/api/strategies"),
+  fetch("https://agents.0.xyz/api/banks"),
 ]);
-const { data } = await strategiesRes.json();
-const strategies = data.strategies || [];
+const strategies = await strategiesRes.json();
 const banksData = await banksRes.json();
 const bankInfoByAddress = Object.fromEntries(
   banksData.map((b) => [b.bank_address, b])
