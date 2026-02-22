@@ -1,6 +1,28 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+let ratelimitInstance: import("@upstash/ratelimit").Ratelimit | null = null;
+
+async function getRatelimit() {
+  if (ratelimitInstance) return ratelimitInstance;
+
+  const { Ratelimit } = await import("@upstash/ratelimit");
+  const { Redis } = await import("@upstash/redis");
+
+  const redis = new Redis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  });
+
+  ratelimitInstance = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(60, "1 m"),
+    analytics: true,
+  });
+
+  return ratelimitInstance;
+}
+
 export async function middleware(request: NextRequest) {
   /* Only rate-limit API routes */
   if (!request.nextUrl.pathname.startsWith("/api")) {
@@ -8,23 +30,11 @@ export async function middleware(request: NextRequest) {
   }
 
   /* Skip rate limiting when Upstash is not configured (local dev) */
-  const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
-  const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-  if (!redisUrl || !redisToken) {
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
     return NextResponse.next();
   }
 
-  /* Dynamic import to avoid bundling Upstash when env vars are missing */
-  const { Ratelimit } = await import("@upstash/ratelimit");
-  const { Redis } = await import("@upstash/redis");
-
-  const redis = new Redis({ url: redisUrl, token: redisToken });
-  const ratelimit = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(60, "1 m"),
-    analytics: true,
-  });
+  const ratelimit = await getRatelimit();
 
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     ?? request.headers.get("x-real-ip")

@@ -15,9 +15,17 @@ export async function GET() {
       );
     }
 
-    const { data } = await response.json();
+    const body = await response.json();
+    const strategies = body?.data?.strategies;
 
-    return NextResponse.json(data.strategies, {
+    if (!Array.isArray(strategies)) {
+      return NextResponse.json(
+        { error: "Unexpected upstream format" },
+        { status: 502 },
+      );
+    }
+
+    return NextResponse.json(strategies, {
       headers: {
         "Cache-Control": "public, s-maxage=120, stale-while-revalidate=60",
       },

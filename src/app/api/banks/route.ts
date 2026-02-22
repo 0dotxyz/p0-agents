@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 const UPSTREAM_URL = "https://app.0.xyz/api/banks/db";
+const RISK_TIER_COLLATERAL = 0;
 
 interface UpstreamBank {
   bank_address: string;
@@ -61,10 +62,17 @@ export async function GET() {
       );
     }
 
-    const banks: UpstreamBank[] = await response.json();
+    const body = await response.json();
 
-    const agentBanks = banks
-      .filter((b) => b.risk_tier === 0)
+    if (!Array.isArray(body)) {
+      return NextResponse.json(
+        { error: "Unexpected upstream format" },
+        { status: 502 },
+      );
+    }
+
+    const agentBanks = (body as UpstreamBank[])
+      .filter((b) => b.risk_tier === RISK_TIER_COLLATERAL)
       .map(transformBank);
 
     return NextResponse.json(agentBanks, {
