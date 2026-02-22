@@ -1,8 +1,19 @@
+import Header from "@/components/header";
+import Hero from "@/components/hero";
+import VideoDemo from "@/components/video-demo";
+import Features from "@/components/features";
+import Footer from "@/components/footer";
+
 export default function Home() {
   return (
-    <main>
-      <h1>P0 Agents</h1>
-      <p>API endpoints for DeFi agents on Solana.</p>
-    </main>
+    <>
+      <Header />
+      <main>
+        <Hero />
+        <VideoDemo />
+        <Features />
+      </main>
+      <Footer />
+    </>
   );
 }

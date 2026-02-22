@@ -1,1 +1,169 @@
 @import "tailwindcss";
+
+/* ------------------------------------------------------------------ */
+/* Fonts                                                               */
+/* ------------------------------------------------------------------ */
+
+@font-face {
+  font-family: "ABC Oracle";
+  src: url("/fonts/ABCOracle-Book.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "ABC Oracle";
+  src: url("/fonts/ABCOracle-Medium.woff") format("woff");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Aeonik Mono";
+  src: url("/fonts/AeonikMono-Regular.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Aeonik Mono";
+  src: url("/fonts/AeonikMono-Medium.woff") format("woff");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tailwind v4 theme                                                   */
+/* ------------------------------------------------------------------ */
+
+@theme inline {
+  --font-sans: "ABC Oracle", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Aeonik Mono", ui-monospace, monospace;
+
+  --color-background: #171721;
+  --color-foreground: #f9f9fb;
+  --color-card: #1e1e2e;
+  --color-card-foreground: #f9f9fb;
+  --color-muted: #242431;
+  --color-muted-foreground: #78788c;
+  --color-border: #242431;
+  --color-ring: #78788c;
+
+  --color-p0-purple: #aa87fa;
+  --color-p0-blue-dark: #1e468c;
+  --color-p0-blue-light: #bed7f5;
+}
+
+/* ------------------------------------------------------------------ */
+/* CSS custom properties (dark-only, matching p0-app dark theme)       */
+/* ------------------------------------------------------------------ */
+
+:root {
+  /* Header gradient */
+  --header-bg-1: #aa87fa;
+  --header-bg-2: #345aad;
+  --header-bg-3: #171721;
+
+  /* Header content */
+  --header-menu-active: #ffffff;
+  --header-menu-inactive: #78788c;
+
+  /* Gradient text */
+  --gradient-text-2: #345aad;
+  --gradient-text-3: #aa87fa;
+  --gradient-text-4: #bed7f5;
+
+  /* Footer gradient */
+  --footer-gradient-1: rgba(11, 11, 17, 0);
+  --footer-gradient-2: #345aad;
+  --footer-gradient-3: #aa87fa;
+  --footer-gradient-4: #bed7f5;
+
+  /* Button gradient */
+  --button-gradient-1: #aa87fa;
+  --button-gradient-2: #345aad;
+  --button-gradient-3: #171721;
+}
+
+/* ------------------------------------------------------------------ */
+/* @property declarations for animated gradient stops                   */
+/* ------------------------------------------------------------------ */
+
+@property --header-blue-stop {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 10%;
+}
+
+@property --header-black-stop {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 30%;
+}
+
+/* ------------------------------------------------------------------ */
+/* Gradient classes                                                     */
+/* ------------------------------------------------------------------ */
+
+.gradient-text {
+  background: linear-gradient(
+    270deg,
+    var(--gradient-text-2) 25%,
+    var(--gradient-text-3) 60%,
+    var(--gradient-text-4) 100%
+  );
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.header-hover-shadow {
+  --header-blue-stop: 6%;
+  --header-black-stop: 17%;
+
+  background: linear-gradient(
+    90deg,
+    var(--header-bg-1) 0%,
+    var(--header-bg-2) var(--header-blue-stop),
+    var(--header-bg-3) var(--header-black-stop),
+    var(--header-bg-3) 100%
+  );
+
+  transition:
+    --header-blue-stop 1.5s ease-out,
+    --header-black-stop 1.5s ease-out,
+    box-shadow 1.5s ease-out;
+}
+
+.header-hover-shadow:hover {
+  --header-blue-stop: 12%;
+  --header-black-stop: 25%;
+  box-shadow:
+    3px 4px 15px 0px rgba(170, 135, 250, 0.4),
+    -4px -3px 15px 0px rgba(190, 215, 245, 0.4),
+    1px -1px 15px 0px rgba(52, 90, 173, 0.5);
+}
+
+/* ------------------------------------------------------------------ */
+/* Base styles                                                         */
+/* ------------------------------------------------------------------ */
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+}

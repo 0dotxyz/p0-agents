@@ -1,13 +1,23 @@
 # Project 0 Agent Skill
 
-Agent skill and landing page for the [Project 0](https://0.xyz) agent skill.
+AI agent skill for the [Project 0](https://www.0.xyz) protocol.
 
 ## Repository Structure
 
 ```
-p0-agent/
-├── SKILL.md       # DeFi agent skill document (P0 credit protocol)
-└── site/          # Marketing / landing page (Astro static site)
+p0-agents/
+├── SKILL.md               # DeFi agent skill document (P0 credit protocol)
+├── src/
+│   ├── app/
+│   │   ├── layout.tsx      # Root layout
+│   │   ├── page.tsx        # Landing page
+│   │   └── api/
+│   │       ├── banks/      # Lightweight bank proxy
+│   │       └── strategies/ # Strategy proxy
+│   ├── components/         # React components (Header, Hero, Features, etc.)
+│   ├── middleware.ts        # Rate limiting (Upstash)
+│   └── styles/globals.css  # Tailwind v4 theme + custom styles
+└── public/                 # Static assets (fonts, images, lottie)
 ```
 
 ### SKILL.md
@@ -28,30 +38,25 @@ etc.) and can be installed with:
 npx skills add 0dotxyz/skill
 ```
 
-### site/
+### API Endpoints
 
-A static landing page built with Astro, React, and Tailwind CSS v4. Dark-themed,
-single-page marketing site for the agent skill.
+| Endpoint              | Description                                                                |
+| --------------------- | -------------------------------------------------------------------------- |
+| `GET /api/banks`      | Proxies upstream bank data, strips to 9 fields, pre-computes `deposit_apy` |
+| `GET /api/strategies` | Returns pre-computed rate-arb and loop strategies                          |
 
-**Tech stack:** Astro 5 | React 19 | Tailwind CSS v4 | TypeScript (strict)
+Both endpoints are cached (2 min) and rate-limited (60 req/min per IP).
 
 ## Getting Started
 
-All commands run from `site/`:
-
 ```bash
-# Install dependencies
-pnpm install
-
-# Development server (localhost:4321)
-pnpm dev
-
-# Production build (outputs to site/dist/)
-pnpm build
-
-# Preview production build
-pnpm preview
+pnpm install        # Install dependencies
+pnpm dev            # Development server (localhost:3000)
+pnpm build          # Production build
+pnpm start          # Serve production build
 ```
+
+**Tech stack:** Next.js 15 | React 19 | Tailwind CSS v4 | TypeScript (strict)
 
 ## License
 
