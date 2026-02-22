@@ -1,6 +1,6 @@
 ---
 name: p0-credit
-version: 1.0.0
+version: 1.1.0
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
@@ -32,6 +32,7 @@ access to the best yields and deepest liquidity across the Solana ecosystem.
 - "Show the top stablecoin rate-arb opportunities on P0."
 - "Deposit 0.05 SOL on P0 and return the transaction link."
 - "What is the cheapest stablecoin to borrow on P0?"
+- "Find the best stablecoin rate-arb and execute a 2x loop."
 
 ---
 
@@ -133,18 +134,58 @@ withdraw, borrow, repay, loop. Requires a Solana keypair and user authorization.
 ### Prerequisites
 
 - Node.js >= 18
-- Solana keypair file (JSON array, e.g. `~/.config/solana/id.json`)
-  - Generate: `solana-keygen new --outfile ~/.config/solana/id.json`
+- Solana keypair (JSON byte array)
 - Funded wallet (SOL for tx fees + tokens to deposit)
-- RPC endpoint (public works; paid RPC like Helius recommended)
+- **Paid RPC endpoint** (required for reliable usage)
+
+### RPC setup
+
+The public Solana RPC (`https://api.mainnet-beta.solana.com`) has aggressive rate
+limits and does not support `simulateBundle`. P0 operations (especially loops)
+send multiple transactions and will fail on the public RPC.
+
+Use a paid RPC provider:
+
+- **Helius** -- https://www.helius.dev (free tier available, sign up for an API key)
+- **Triton** -- https://triton.one
+- **Quicknode** -- https://www.quicknode.com
+
+Once you have an API key, your RPC URL will look like:
+```
+https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY
+```
+
+Always use a paid RPC when interacting with P0 on-chain.
+
+### Wallet setup
+
+Generate a keypair if one does not exist:
+
+```bash
+solana-keygen new --outfile ~/.config/solana/id.json
+```
+
+Load the keypair in code:
+
+```typescript
+import { Keypair, Connection } from "@solana/web3.js";
+import fs from "fs";
+
+const wallet = Keypair.fromSecretKey(
+  Uint8Array.from(
+    JSON.parse(fs.readFileSync("~/.config/solana/id.json", "utf-8"))
+  )
+);
+```
 
 ### Install
 
 ```bash
-npm install @0dotxyz/p0-ts-sdk @solana/web3.js
+npm install @0dotxyz/p0-ts-sdk
 ```
 
-`@solana/web3.js` is pinned to **1.98.2** to match the SDK's peer dependency.
+`@solana/web3.js` (1.98.4) is bundled as a direct dependency -- no need to
+install it separately.
 
 ### Initialize client
 
@@ -152,7 +193,11 @@ npm install @0dotxyz/p0-ts-sdk @solana/web3.js
 import { Connection } from "@solana/web3.js";
 import { Project0Client, getConfig } from "@0dotxyz/p0-ts-sdk";
 
-const connection = new Connection("YOUR_RPC_URL", "confirmed");
+// Use a paid RPC -- public RPC will rate-limit and fail on multi-tx operations
+const connection = new Connection(
+  "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY",
+  "confirmed",
+);
 const config = getConfig("production");
 const client = await Project0Client.initialize(connection, config);
 ```
@@ -165,7 +210,7 @@ The client loads all on-chain state: `client.banks` (Bank[]), `client.bankMap`,
 ### Create or load account
 
 A P0 account (MarginfiAccount) is an on-chain PDA that holds positions.
-One wallet can own multiple accounts via different indices.
+One wallet can own multiple accounts via different `accountIndex` values.
 
 ```typescript
 // Discover existing accounts
@@ -176,8 +221,11 @@ if (accounts.length > 0) {
   // Load existing
   wrappedAccount = await client.fetchAccount(accounts[0]!);
 } else {
-  // Create new (legacy tx -- set blockhash + feePayer)
-  const createTx = await client.createMarginfiAccountTx(wallet.publicKey);
+  // Create new (accountIndex defaults to 0)
+  const createTx = await client.createMarginfiAccountTx(
+    wallet.publicKey,
+    0, // accountIndex -- use different values to create multiple accounts
+  );
   createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
   createTx.feePayer = wallet.publicKey;
   createTx.sign(wallet);
@@ -211,9 +259,30 @@ const kaminoSol = client.getBanksByMint(SOL_MINT, AssetTag.KAMINO)[0];    // Kam
 | `AssetTag.KAMINO`  | 3     | Kamino                          |
 | `AssetTag.DRIFT`   | 4     | Drift                           |
 
+**Comingling rules (critical):**
+
+A single P0 account cannot mix all asset types. The on-chain program enforces:
+
+| Account contains | Can also hold       | Cannot hold |
+| ---------------- | ------------------- | ----------- |
+| DEFAULT only     | DEFAULT, SOL        | STAKED      |
+| STAKED only      | STAKED, SOL         | DEFAULT     |
+| SOL only         | DEFAULT or STAKED (not both) | --  |
+| DEFAULT + SOL    | DEFAULT, SOL        | STAKED      |
+| STAKED + SOL     | STAKED, SOL         | DEFAULT     |
+
+SOL acts as a bridge -- it can coexist with either DEFAULT or STAKED, but once
+an account holds both SOL and DEFAULT positions, STAKED is locked out (and vice
+versa). KAMINO and DRIFT banks route through separate instruction sets and are
+implicitly isolated.
+
+Violating these rules produces on-chain error `6047` (`assetTagMismatch`).
+If you need positions from both DEFAULT and STAKED groups, create separate
+accounts using different `accountIndex` values.
+
 ### Deposit
 
-Returns a legacy transaction. Amounts are human-readable strings.
+Returns a legacy transaction. Amounts are human-readable strings (UI units).
 
 ```typescript
 const depositTx = await wrappedAccount.makeDepositTx(bankAddress, "100");
@@ -276,21 +345,84 @@ await connection.sendRawTransaction(repayTx.serialize());
 ### Loop (leveraged position)
 
 Loops deposit into one bank and borrow from another in a single flash-loan-based
-operation to amplify yield via rate arbitrage.
+operation to amplify yield via rate arbitrage. Uses Jupiter for the swap leg.
+
+**Do NOT deposit first then loop.** The loop handles the deposit internally via
+flash loan. Depositing first and then looping will double-count your principal.
+Just call `makeLoopTx` with your tokens in the wallet -- it does everything in
+one atomic operation.
+
+`makeLoopTx` takes a params object. The wrapper auto-injects `program`,
+`marginfiAccount`, `bankMap`, `oraclePrices`, `bankMetadataMap`, and
+`addressLookupTableAccounts`. You must provide:
+
+- `connection` -- your RPC connection
+- `assetShareValueMultiplierByBank` -- get from `client.assetShareValueMultiplierByBank`
+- `depositOpts` -- deposit bank, amount, token program, loop mode
+- `borrowOpts` -- borrow bank, amount, token program
+- `swapOpts` -- Jupiter slippage configuration
+
+**Getting `tokenProgram` for a bank:** Mint data is stored separately on the
+client, not on the bank object. Use `client.mintDataByBank`:
 
 ```typescript
-const loopResult = await wrappedAccount.makeLoopTx(
-  depositBankAddress,  // bank to deposit into
-  borrowBankAddress,   // bank to borrow from
-  "100",               // deposit amount
-  "2",                 // target leverage multiplier
-);
+const depositBank = client.getBanksByMint(USDC_MINT, AssetTag.DEFAULT)[0]!;
+const borrowBank = client.getBanksByMint(USDC_MINT, AssetTag.KAMINO)[0]!;
+
+// Get token programs from mintDataByBank (NOT from the bank object)
+const depositMintData = client.mintDataByBank.get(depositBank.address.toBase58())!;
+const borrowMintData = client.mintDataByBank.get(borrowBank.address.toBase58())!;
+
+const loopResult = await wrappedAccount.makeLoopTx({
+  connection,
+  assetShareValueMultiplierByBank: client.assetShareValueMultiplierByBank,
+  depositOpts: {
+    inputDepositAmount: 100,       // principal deposit in UI units
+    depositBank,
+    tokenProgram: depositMintData.tokenProgram,
+    loopMode: "DEPOSIT",           // principal goes to deposit side
+  },
+  borrowOpts: {
+    borrowAmount: 100,             // flash-borrow amount in UI units
+    borrowBank,
+    tokenProgram: borrowMintData.tokenProgram,
+  },
+  swapOpts: {
+    jupiterOptions: {
+      slippageMode: "DYNAMIC",
+      slippageBps: 50,
+      platformFeeBps: 0,
+    },
+  },
+});
+
 for (const tx of loopResult.transactions) {
   tx.sign([wallet]);
   const sig = await connection.sendRawTransaction(tx.serialize());
   await connection.confirmTransaction(sig, "confirmed");
 }
 ```
+
+### Additional operations
+
+The wrapper provides these methods for advanced use cases:
+
+| Method                       | Description                                   | Returns               |
+| ---------------------------- | --------------------------------------------- | --------------------- |
+| `makeRepayWithCollatTx()`    | Repay debt using collateral (withdraw + swap) | Versioned tx bundle   |
+| `makeSwapCollateralTx()`     | Swap one collateral asset for another         | Versioned tx bundle   |
+| `makeSwapDebtTx()`           | Swap one debt for another                     | Versioned tx bundle   |
+| `makeFlashLoanTx()`          | Execute a flash loan with custom instructions | Versioned tx          |
+| `makeKaminoDepositTx()`      | Deposit into Kamino-tagged banks              | Legacy tx             |
+| `makeKaminoWithdrawTx()`     | Withdraw from Kamino-tagged banks             | Versioned tx bundle   |
+| `makeDriftDepositTx()`       | Deposit into Drift-tagged banks               | Legacy tx             |
+| `makeDriftWithdrawTx()`      | Withdraw from Drift-tagged banks              | Versioned tx bundle   |
+
+The swap/repay/loop methods take a params object with `connection`,
+`assetShareValueMultiplierByBank`, operation-specific opts, and `swapOpts`
+(Jupiter configuration). Always get `tokenProgram` from
+`client.mintDataByBank.get(bank.address.toBase58())` -- it is not on the bank
+object itself. See the loop example above for the pattern.
 
 ### Health monitoring
 
@@ -336,8 +468,8 @@ await connection.sendRawTransaction(tx.serialize());
 
 **Pattern B: Versioned transaction bundle** (borrow, withdraw, loop)
 
-Returns `TransactionBuilderResult` with `transactions[]`. Blockhash is embedded.
-Send sequentially, confirming each before the next:
+Returns a result with `transactions[]` (typed `ExtendedV0Transaction[]`).
+Blockhash is embedded. Send sequentially, confirming each before the next:
 
 ```typescript
 for (const tx of result.transactions) {
@@ -348,7 +480,25 @@ for (const tx of result.transactions) {
 ```
 
 Bundles may contain setup txs (oracle cranks, ATA creation) that must execute
-before the main action. Always send in order.
+before the main action. Always send in order. The result includes
+`actionTxIndex` indicating which transaction contains the main operation.
+
+**Simulating before sending:**
+
+Use `simulateBundle` to dry-run a multi-tx bundle before spending gas:
+
+```typescript
+import { simulateBundle } from "@0dotxyz/p0-ts-sdk";
+
+const results = await simulateBundle(
+  connection.rpcEndpoint,
+  result.transactions,
+);
+// Check results for errors before signing and sending
+```
+
+Requires an RPC that supports `simulateBundle` (Helius, Triton). Public RPCs
+may not support this.
 
 ---
 
@@ -365,12 +515,312 @@ before the main action. Always send in order.
 
 ---
 
+## Swapping Tokens via Jupiter
+
+If the agent's wallet holds a different token than what a strategy requires (e.g.
+holds SOL but wants to deposit USDC), use Jupiter to swap first. This is
+independent of the P0 SDK -- it uses the Jupiter Swap API directly.
+
+### Get a quote
+
+```typescript
+const inputMint = "So11111111111111111111111111111111111111112";   // SOL
+const outputMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC
+const amount = 100000000; // 0.1 SOL in lamports (raw integer units)
+
+const quoteResponse = await (
+  await fetch(
+    `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}` +
+    `&outputMint=${outputMint}` +
+    `&amount=${amount}` +
+    `&slippageBps=50` +
+    `&restrictIntermediateTokens=true`
+  )
+).json();
+```
+
+`amount` is in raw integer units (lamports for SOL, smallest unit for SPL
+tokens). For example, 1 USDC = 1000000 (6 decimals), 1 SOL = 1000000000
+(9 decimals).
+
+### Build, sign, and send the swap transaction
+
+```typescript
+import { VersionedTransaction } from "@solana/web3.js";
+
+const swapResponse = await (
+  await fetch("https://api.jup.ag/swap/v1/swap", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      quoteResponse,
+      userPublicKey: wallet.publicKey.toBase58(),
+      dynamicComputeUnitLimit: true,
+      dynamicSlippage: true,
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          maxLamports: 1000000,
+          priorityLevel: "veryHigh",
+        },
+      },
+    }),
+  })
+).json();
+
+// Deserialize, sign, and send
+const swapTx = VersionedTransaction.deserialize(
+  Buffer.from(swapResponse.swapTransaction, "base64")
+);
+swapTx.sign([wallet]);
+const sig = await connection.sendRawTransaction(swapTx.serialize());
+await connection.confirmTransaction(sig, "confirmed");
+console.log(`swap: https://solscan.io/tx/${sig}`);
+```
+
+### Token decimal reference
+
+| Token | Decimals | 1 unit in raw |
+| ----- | -------- | ------------- |
+| SOL   | 9        | 1000000000    |
+| USDC  | 6        | 1000000       |
+| USDT  | 6        | 1000000       |
+
+---
+
+## End-to-End Example: Stablecoin Rate-Arb Loop
+
+Complete workflow: discover a strategy, swap into the required token, execute
+a leveraged loop, and verify the resulting portfolio.
+
+### Step 1: Setup
+
+```typescript
+import { Connection, Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import {
+  Project0Client,
+  getConfig,
+  AssetTag,
+  MarginRequirementType,
+} from "@0dotxyz/p0-ts-sdk";
+import fs from "fs";
+
+const wallet = Keypair.fromSecretKey(
+  Uint8Array.from(
+    JSON.parse(fs.readFileSync("~/.config/solana/id.json", "utf-8"))
+  )
+);
+// Use a paid RPC -- public RPC will rate-limit and fail on multi-tx operations
+const connection = new Connection(
+  "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY",
+  "confirmed",
+);
+```
+
+### Step 2: Find the best strategy
+
+```typescript
+// Fetch strategies from the API (no SDK needed)
+const res = await fetch("https://app.0.xyz/api/strategies");
+const { data } = await res.json();
+const strategies = data.strategies || [];
+
+// Filter for stablecoin rate-arb, sorted by APY
+const stableArbs = strategies
+  .filter((s) => s.type === "rate-arb")
+  .filter((s) => s.assetGroups?.includes("stablecoins"))
+  .sort((a, b) => (b.apy || 0) - (a.apy || 0));
+
+const best = stableArbs[0];
+console.log(`Best arb: ${best.name} at ${best.apy}% APY`);
+// e.g. "USDC (P0) / USDC (Kamino)" at 8.5% APY
+```
+
+### Step 3: Check wallet balance and swap if needed
+
+The strategy requires USDC but the wallet might hold SOL. Check and swap:
+
+```typescript
+// Check SOL balance
+const solBalance = await connection.getBalance(wallet.publicKey);
+console.log(`SOL balance: ${solBalance / 1e9}`);
+
+// Check USDC balance (derive the associated token account)
+const USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+const usdcAta = PublicKey.findProgramAddressSync(
+  [wallet.publicKey.toBytes(), new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBytes(), USDC_MINT.toBytes()],
+  new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
+)[0];
+
+let usdcBalance = 0;
+try {
+  const accountInfo = await connection.getTokenAccountBalance(usdcAta);
+  usdcBalance = Number(accountInfo.value.uiAmount);
+} catch {
+  // ATA doesn't exist yet -- balance is 0
+}
+console.log(`USDC balance: ${usdcBalance}`);
+
+// Swap SOL -> USDC if needed (e.g. swap 0.5 SOL to get ~100 USDC)
+if (usdcBalance < 100) {
+  const swapAmount = 500000000; // 0.5 SOL in lamports
+
+  const quoteResponse = await (
+    await fetch(
+      `https://api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112` +
+      `&outputMint=${USDC_MINT.toBase58()}` +
+      `&amount=${swapAmount}` +
+      `&slippageBps=50` +
+      `&restrictIntermediateTokens=true`
+    )
+  ).json();
+
+  const swapResponse = await (
+    await fetch("https://api.jup.ag/swap/v1/swap", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        quoteResponse,
+        userPublicKey: wallet.publicKey.toBase58(),
+        dynamicComputeUnitLimit: true,
+        dynamicSlippage: true,
+        prioritizationFeeLamports: {
+          priorityLevelWithMaxLamports: {
+            maxLamports: 1000000,
+            priorityLevel: "veryHigh",
+          },
+        },
+      }),
+    })
+  ).json();
+
+  const swapTx = VersionedTransaction.deserialize(
+    Buffer.from(swapResponse.swapTransaction, "base64")
+  );
+  swapTx.sign([wallet]);
+  const sig = await connection.sendRawTransaction(swapTx.serialize());
+  await connection.confirmTransaction(sig, "confirmed");
+  console.log(`Swap complete: https://solscan.io/tx/${sig}`);
+}
+```
+
+### Step 4: Initialize P0 client and load account
+
+```typescript
+const client = await Project0Client.initialize(
+  connection,
+  getConfig("production"),
+);
+
+// Load or create P0 account
+const addrs = await client.getAccountAddresses(wallet.publicKey);
+let wrappedAccount;
+if (addrs.length > 0) {
+  wrappedAccount = await client.fetchAccount(addrs[0]!);
+} else {
+  const createTx = await client.createMarginfiAccountTx(wallet.publicKey, 0);
+  createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+  createTx.feePayer = wallet.publicKey;
+  createTx.sign(wallet);
+  await connection.sendRawTransaction(createTx.serialize());
+  const created = await client.getAccountAddresses(wallet.publicKey);
+  wrappedAccount = await client.fetchAccount(created[0]!);
+}
+```
+
+### Step 5: Execute the loop
+
+Do NOT deposit first -- the loop handles the deposit internally via flash loan.
+
+```typescript
+const depositBank = client.getBanksByMint(USDC_MINT, AssetTag.DEFAULT)[0]!;
+const borrowBank = client.getBanksByMint(USDC_MINT, AssetTag.KAMINO)[0]!;
+
+// Get token programs from mintDataByBank (NOT from the bank object)
+const depositMintData = client.mintDataByBank.get(depositBank.address.toBase58())!;
+const borrowMintData = client.mintDataByBank.get(borrowBank.address.toBase58())!;
+
+const DEPOSIT_AMOUNT = 100; // 100 USDC principal
+const BORROW_AMOUNT = 100;  // borrow 100 USDC (effectively 2x leverage)
+
+const loopResult = await wrappedAccount.makeLoopTx({
+  connection,
+  assetShareValueMultiplierByBank: client.assetShareValueMultiplierByBank,
+  depositOpts: {
+    inputDepositAmount: DEPOSIT_AMOUNT,
+    depositBank,
+    tokenProgram: depositMintData.tokenProgram,
+    loopMode: "DEPOSIT",
+  },
+  borrowOpts: {
+    borrowAmount: BORROW_AMOUNT,
+    borrowBank,
+    tokenProgram: borrowMintData.tokenProgram,
+  },
+  swapOpts: {
+    jupiterOptions: {
+      slippageMode: "DYNAMIC",
+      slippageBps: 50,
+      platformFeeBps: 0,
+    },
+  },
+});
+
+// Send all transactions in order
+for (const tx of loopResult.transactions) {
+  tx.sign([wallet]);
+  const sig = await connection.sendRawTransaction(tx.serialize());
+  await connection.confirmTransaction(sig, "confirmed");
+  console.log(`Loop tx: https://solscan.io/tx/${sig}`);
+}
+```
+
+### Step 6: Check portfolio and account health
+
+```typescript
+// Reload account state after the loop
+wrappedAccount = await client.fetchAccount(addrs[0]!);
+
+// List all active positions
+for (const balance of wrappedAccount.activeBalances) {
+  const bank = client.bankMap.get(balance.bankPk.toBase58());
+  if (!bank) continue;
+  const multiplier = client.assetShareValueMultiplierByBank.get(balance.bankPk.toBase58());
+  const qty = balance.computeQuantityUi(bank, multiplier);
+  const symbol = bank.tokenSymbol ?? bank.mint.toBase58().slice(0, 8);
+  if (qty.assets.gt(0)) console.log(`Deposit: ${qty.assets.toFixed(4)} ${symbol}`);
+  if (qty.liabilities.gt(0)) console.log(`Borrow:  ${qty.liabilities.toFixed(4)} ${symbol}`);
+}
+
+// Account value (total equity in USD)
+const accountValue = wrappedAccount.computeAccountValue();
+console.log(`Account value: $${accountValue.toFixed(2)}`);
+
+// Health factor
+const health = wrappedAccount.computeHealthComponentsFromCache(
+  MarginRequirementType.Maintenance,
+);
+const healthFactor = health.assets.dividedBy(health.liabilities).toNumber();
+console.log(`Health factor: ${healthFactor.toFixed(2)}`);
+// > 2.0 = healthy, 1.1-2.0 = monitor, < 1.1 = danger
+
+// Free collateral (how much more you can borrow)
+const freeCollateral = wrappedAccount.computeFreeCollateralFromCache();
+console.log(`Free collateral: $${freeCollateral.toFixed(2)}`);
+
+// Net APY across all positions
+const netApy = wrappedAccount.computeNetApy();
+console.log(`Net APY: ${(netApy * 100).toFixed(2)}%`);
+```
+
+---
+
 ## Error Reference
 
 | Error                          | Cause                                  | Resolution                                              |
 | ------------------------------ | -------------------------------------- | ------------------------------------------------------- |
 | `Bank not found`               | No bank for mint + AssetTag combo      | Try without AssetTag: `getBanksByMint(mint)`             |
 | `Insufficient free collateral` | Not enough collateral to borrow        | Deposit more or borrow less                             |
+| `assetTagMismatch` (6047)      | Incompatible asset types in account    | Use separate accounts for DEFAULT vs STAKED positions   |
 | `Simulation failed`            | Transaction would fail on-chain        | Check logs -- often stale oracle or insufficient balance |
 | `Transaction expired`          | Blockhash expired before confirmation  | Retry with fresh blockhash                              |
 | `Account not found`            | P0 account address does not exist      | Verify address or create a new account                  |
