@@ -1,6 +1,6 @@
 ---
 name: p0-credit
-version: 1.3.0
+version: 1.4.0
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
@@ -42,7 +42,7 @@ Use the public HTTP APIs for read-only tasks. No SDK, no wallet, no RPC needed.
 
 ### Banks endpoint
 
-`GET https://agents.0.xyz/api/banks`
+`GET https://p0-agents.vercel.app/api/banks`
 
 Returns every lending pool (bank) with rates, metadata, and pricing. Only
 collateral-tier banks are included (isolated banks are filtered out). The
@@ -50,7 +50,7 @@ response is a lightweight projection (9 fields per bank) with deposit APY
 pre-computed.
 
 ```typescript
-const res = await fetch("https://agents.0.xyz/api/banks");
+const res = await fetch("https://p0-agents.vercel.app/api/banks");
 const banks = await res.json();
 ```
 
@@ -86,12 +86,12 @@ sort by `borrow_apy` ascending.
 
 ### Strategies endpoint
 
-`GET https://agents.0.xyz/api/strategies`
+`GET https://p0-agents.vercel.app/api/strategies`
 
 Returns precomputed strategies with APYs and leverage.
 
 ```typescript
-const res = await fetch("https://agents.0.xyz/api/strategies");
+const res = await fetch("https://p0-agents.vercel.app/api/strategies");
 const strategies = await res.json();
 ```
 
@@ -138,7 +138,7 @@ const solArbs = strategies
 banks API:
 
 ```typescript
-const banksRes = await fetch("https://agents.0.xyz/api/banks");
+const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
 const banksByAddress = Object.fromEntries(banksData.map((b) => [b.bank_address, b]));
 
@@ -251,9 +251,9 @@ if (accounts.length > 0) {
     0, // accountIndex -- use different values to create multiple accounts
   );
   createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-  createTx.feePayer = wallet.publicKey;
   createTx.sign(wallet);
-  await connection.sendRawTransaction(createTx.serialize());
+  const createSig = await connection.sendRawTransaction(createTx.serialize());
+  await connection.confirmTransaction(createSig, "confirmed");
 
   const created = await client.getAccountAddresses(wallet.publicKey);
   wrappedAccount = await client.fetchAccount(created[0]!);
@@ -269,7 +269,7 @@ Banks are lending pools. Use the banks API to discover banks, then
 import { PublicKey } from "@solana/web3.js";
 
 // Fetch bank metadata from the API
-const banksRes = await fetch("https://agents.0.xyz/api/banks");
+const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
 
 // Find a specific bank (e.g. highest-yield SOL bank)
@@ -306,14 +306,14 @@ accounts using different `accountIndex` values.
 
 ### Deposit
 
-Returns a legacy transaction. Amounts are human-readable strings (UI units).
+Returns a legacy transaction. Amounts are in UI units (human-readable numbers).
 
 ```typescript
-const depositTx = await wrappedAccount.makeDepositTx(bankAddress, "100");
+const depositTx = await wrappedAccount.makeDepositTx(bankAddress, 100);
 depositTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-depositTx.feePayer = wallet.publicKey;
 depositTx.sign(wallet);
-await connection.sendRawTransaction(depositTx.serialize());
+const sig = await connection.sendRawTransaction(depositTx.serialize());
+await connection.confirmTransaction(sig, "confirmed");
 ```
 
 ### Withdraw
@@ -323,7 +323,7 @@ Returns a versioned transaction bundle. Send each tx sequentially.
 ```typescript
 const withdrawResult = await wrappedAccount.makeWithdrawTx(
   bankAddress,
-  "50",
+  50,
   false, // set true to withdraw all
 );
 for (const tx of withdrawResult.transactions) {
@@ -341,7 +341,7 @@ Returns a versioned transaction bundle (may include oracle crank txs).
 // Check capacity first
 const maxBorrow = wrappedAccount.computeMaxBorrowForBank(bankAddress);
 
-const borrowResult = await wrappedAccount.makeBorrowTx(bankAddress, "50");
+const borrowResult = await wrappedAccount.makeBorrowTx(bankAddress, 50);
 for (const tx of borrowResult.transactions) {
   tx.sign([wallet]);
   const sig = await connection.sendRawTransaction(tx.serialize());
@@ -355,15 +355,15 @@ Returns a legacy transaction.
 
 ```typescript
 // Repay specific amount
-const repayTx = await wrappedAccount.makeRepayTx(bankAddress, "50", false);
+const repayTx = await wrappedAccount.makeRepayTx(bankAddress, 50, false);
 
 // Repay all debt
-const repayAllTx = await wrappedAccount.makeRepayTx(bankAddress, "0", true);
+const repayAllTx = await wrappedAccount.makeRepayTx(bankAddress, 0, true);
 
 repayTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-repayTx.feePayer = wallet.publicKey;
 repayTx.sign(wallet);
-await connection.sendRawTransaction(repayTx.serialize());
+const sig = await connection.sendRawTransaction(repayTx.serialize());
+await connection.confirmTransaction(sig, "confirmed");
 ```
 
 ### Loop (leveraged position)
@@ -449,9 +449,9 @@ The wrapper provides these methods for advanced use cases:
 | `makeSwapCollateralTx()`     | Swap one collateral asset for another         | Versioned tx bundle   |
 | `makeSwapDebtTx()`           | Swap one debt for another                     | Versioned tx bundle   |
 | `makeFlashLoanTx()`          | Execute a flash loan with custom instructions | Versioned tx          |
-| `makeKaminoDepositTx()`      | Deposit into Kamino-tagged banks              | Legacy tx             |
+| `makeKaminoDepositTx()`      | Deposit into Kamino-tagged banks              | Versioned tx          |
 | `makeKaminoWithdrawTx()`     | Withdraw from Kamino-tagged banks             | Versioned tx bundle   |
-| `makeDriftDepositTx()`       | Deposit into Drift-tagged banks               | Legacy tx             |
+| `makeDriftDepositTx()`       | Deposit into Drift-tagged banks               | Versioned tx          |
 | `makeDriftWithdrawTx()`      | Withdraw from Drift-tagged banks              | Versioned tx bundle   |
 
 The swap/repay/loop methods take a params object with `connection`,
@@ -489,7 +489,7 @@ const netApy = wrappedAccount.computeNetApy();
 
 ```typescript
 // Fetch bank metadata for human-readable output
-const banksRes = await fetch("https://agents.0.xyz/api/banks");
+const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
 const bankInfoByAddress = Object.fromEntries(
   banksData.map((b) => [b.bank_address, b])
@@ -531,13 +531,14 @@ The SDK builds transactions but never signs or sends them.
 
 **Pattern A: Legacy transaction** (deposit, repay, create account)
 
-Returns a single `Transaction`. You must set `recentBlockhash` and `feePayer`:
+Returns a single `Transaction`. The SDK sets `feePayer` automatically. You must
+set `recentBlockhash`, sign, send, and confirm:
 
 ```typescript
 tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-tx.feePayer = wallet.publicKey;
 tx.sign(wallet);
-await connection.sendRawTransaction(tx.serialize());
+const sig = await connection.sendRawTransaction(tx.serialize());
+await connection.confirmTransaction(sig, "confirmed");
 ```
 
 **Pattern B: Versioned transaction bundle** (borrow, withdraw, loop)
@@ -675,7 +676,7 @@ const solBalance = await connection.getBalance(wallet.publicKey);
 console.log(`SOL balance: ${solBalance / 1e9}`);
 
 // --- 2. Find the best deposit yield ---
-const banksRes = await fetch("https://agents.0.xyz/api/banks");
+const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
 
 // Best SOL deposit yield
@@ -694,20 +695,19 @@ if (addrs.length > 0) {
 } else {
   const createTx = await client.createMarginfiAccountTx(wallet.publicKey, 0);
   createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-  createTx.feePayer = wallet.publicKey;
   createTx.sign(wallet);
-  await connection.sendRawTransaction(createTx.serialize());
+  const createSig = await connection.sendRawTransaction(createTx.serialize());
+  await connection.confirmTransaction(createSig, "confirmed");
   const created = await client.getAccountAddresses(wallet.publicKey);
   wrappedAccount = await client.fetchAccount(created[0]!);
 }
 
 // --- 4. Deposit SOL (leave some for tx fees) ---
-const depositAmount = ((solBalance / 1e9) - 0.01).toFixed(4); // keep 0.01 SOL for fees
+const depositAmount = Math.floor(((solBalance / 1e9) - 0.01) * 10000) / 10000; // keep 0.01 SOL for fees
 const bankAddress = new PublicKey(bestSolBank.bank_address);
 
 const depositTx = await wrappedAccount.makeDepositTx(bankAddress, depositAmount);
 depositTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-depositTx.feePayer = wallet.publicKey;
 depositTx.sign(wallet);
 const sig = await connection.sendRawTransaction(depositTx.serialize());
 await connection.confirmTransaction(sig, "confirmed");
@@ -729,8 +729,8 @@ console.log(`SOL balance: ${solBalance / 1e9}`);
 
 // --- 2. Find the best SOL/LST strategy ---
 const [strategiesRes, banksRes] = await Promise.all([
-  fetch("https://agents.0.xyz/api/strategies"),
-  fetch("https://agents.0.xyz/api/banks"),
+  fetch("https://p0-agents.vercel.app/api/strategies"),
+  fetch("https://p0-agents.vercel.app/api/banks"),
 ]);
 const strategies = await strategiesRes.json();
 const banksData = await banksRes.json();
@@ -802,9 +802,9 @@ if (addrs.length > 0) {
 } else {
   const createTx = await client.createMarginfiAccountTx(wallet.publicKey, 0);
   createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-  createTx.feePayer = wallet.publicKey;
   createTx.sign(wallet);
-  await connection.sendRawTransaction(createTx.serialize());
+  const createSig = await connection.sendRawTransaction(createTx.serialize());
+  await connection.confirmTransaction(createSig, "confirmed");
   const created = await client.getAccountAddresses(wallet.publicKey);
   wrappedAccount = await client.fetchAccount(created[0]!);
 }
