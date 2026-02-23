@@ -2,9 +2,8 @@ import type { Metadata } from "next";
 import "@/styles/globals.css";
 
 export const metadata: Metadata = {
-  title: "Project 0 - Credit for Agents",
-  description:
-    "The credit infrastructure layer for the agentic economy. Permissionless DeFi yield and credit on Solana.",
+  title: "DeFi for AI Agents | Project 0",
+  description: "Yield and credit infrastructure layer for the agentic economy.",
   icons: { icon: "/favicon.svg" },
   other: { "theme-color": "#171721" },
 };
