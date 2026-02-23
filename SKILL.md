@@ -1,16 +1,91 @@
 ---
 name: p0-credit
-version: 1.4.0
+version: 2.0.0
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
   Borrow SOL and stablecoins against cross-venue collateral.
-  All operations are on-chain and permissionless -- no API keys, no accounts,
-  no approval process. Only a Solana keypair is required.
+  All operations are on-chain and permissionless -- no accounts, no approval
+  process. Requires a Solana keypair and a paid RPC endpoint.
 homepage: https://0.xyz
 ---
 
 # P0 Credit Skill
+
+## Agent Workflow
+
+When a user asks to earn yield, deposit, borrow, or put funds to work on P0,
+follow these steps in order. Do NOT skip ahead to writing code.
+
+### Step 1: Check ALL wallet balances
+
+Check the wallet's native SOL balance AND enumerate every SPL token account.
+Do NOT only check SOL -- the wallet may hold LSTs (JitoSOL, bbSOL, mSOL),
+stablecoins (USDC, USDT), or other tokens that earn higher yields on P0.
+
+```typescript
+import { PublicKey } from "@solana/web3.js";
+
+// Native SOL
+const solBalance = await connection.getBalance(wallet.publicKey);
+
+// All SPL token accounts (Token Program)
+const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+  wallet.publicKey,
+  { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") },
+);
+
+// Also check Token-2022 accounts
+const token2022Accounts = await connection.getParsedTokenAccountsByOwner(
+  wallet.publicKey,
+  { programId: new PublicKey("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb") },
+);
+```
+
+List every token with a non-zero balance. Include mint address, symbol (if
+known), and UI amount.
+
+### Step 2: Fetch P0 data
+
+Fetch banks and strategies from the P0 APIs (see Read-Only section below).
+
+### Step 3: Recommend optimal action
+
+Match wallet holdings to available bank yields. For each token the wallet
+holds, find the best deposit APY from the banks data. Compare across all
+holdings to find the highest overall yield.
+
+If swapping to a different token would yield significantly more, recommend the
+swap and explain the tradeoff.
+
+**Present the plan to the user with specific numbers before executing.**
+
+Example response: *"Your wallet holds 0.09 bbSOL and 0.10 SOL. bbSOL earns
+15.2% APY on P0 vs SOL at 4.9%. I recommend depositing your bbSOL for the
+higher yield, and swapping your spare SOL into more bbSOL. Shall I proceed?"*
+
+### Step 4: Collect credentials
+
+Ask the user for what is needed based on the plan from step 3. Do not assume
+values. Do not use placeholders. Prompt and wait for real values.
+
+- **Always needed:** *"I need a paid Solana RPC URL to interact with P0.
+  Do you have one? (Helius has a free tier at https://www.helius.dev)"*
+
+- **Only if swapping tokens:** *"I need a Jupiter API key for the token swap.
+  You can get a free one at https://portal.jup.ag (60 req/min)"*
+
+If the user only needs to deposit tokens already in their wallet, skip the
+Jupiter API key -- it is not needed for deposits, withdrawals, borrows, or
+repays.
+
+### Step 5: Execute
+
+Execute the plan from step 3. Swap first if needed (see Swapping Tokens
+section), then deposit, borrow, etc. Report results with Solscan transaction
+links: `https://solscan.io/tx/${signature}`
+
+---
 
 ## What is Project 0?
 
@@ -22,17 +97,15 @@ access to the best yields and deepest liquidity across the Solana ecosystem.
 
 - **Earn yield** on idle assets instead of leaving them in a wallet.
 - **Access liquidity** by borrowing against collateral without selling.
-- **Execute rate-arb loops** to amplify returns with controlled leverage.
-- **Permissionless** -- no signup, no API keys, no approval process.
+- **Permissionless** -- no signup, no approval process.
 - **Non-custodial** -- the agent holds its own keypair.
 
 **Example prompts:**
 
 - "What are the best deposit yields on P0 right now?"
-- "Show the top stablecoin rate-arb opportunities on P0."
 - "Deposit 0.05 SOL on P0 and return the transaction link."
 - "What is the cheapest stablecoin to borrow on P0?"
-- "Find the best stablecoin rate-arb and execute a 2x loop."
+- "Put my funds to work on P0 for the best yield."
 
 ---
 
@@ -75,7 +148,7 @@ rates). No manual computation needed -- just sort by `deposit_apy` descending.
 deposit-only -- you can earn yield on them but cannot borrow from them. When
 looking for borrow opportunities, filter to `venue === "P0"`.
 
-**Finding best deposit yields (top 10):**
+**Finding best deposit yields:**
 
 Sort banks by `deposit_apy` descending.
 
@@ -84,11 +157,17 @@ Sort banks by `deposit_apy` descending.
 Filter where `venue` is `"P0"` and `symbol` is in `[USDC, USDT, USDG, USDS, HYUSD]`,
 sort by `borrow_apy` ascending.
 
+**Matching wallet holdings to banks:** Use the `mint` field to match tokens in
+the wallet to available banks. A wallet token account's mint address corresponds
+to a bank's `mint` field.
+
 ### Strategies endpoint
 
 `GET https://p0-agents.vercel.app/api/strategies`
 
-Returns precomputed strategies with APYs and leverage.
+Returns precomputed strategies showing the best deposit/borrow combinations
+with projected APYs. Useful for finding which token to deposit and which to
+borrow for the best spread.
 
 ```typescript
 const res = await fetch("https://p0-agents.vercel.app/api/strategies");
@@ -114,23 +193,25 @@ const strategies = await res.json();
 | ------------- | ----------------------------------- |
 | `rate-arb`    | Pure rate arbitrage (deposit vs borrow spread) |
 | `campaign`    | Includes emissions or points        |
-| `manual`      | Curated loops (e.g. JLP)            |
+| `manual`      | Curated strategies (e.g. JLP)       |
 | `directional` | Long/short strategies               |
 
-**Common filters:**
+**Using strategies to plan deposits and borrows:**
+
+Strategies show which deposit/borrow pairs have the best spread. The agent can
+execute these as separate deposit + borrow operations:
 
 ```typescript
-// Stablecoin rate-arb only (no emissions)
+// Find the best stablecoin strategy
 const stableArbs = strategies
   .filter((s) => s.type === "rate-arb")
   .filter((s) => s.assetGroups?.includes("stablecoins"))
   .sort((a, b) => (b.apy || 0) - (a.apy || 0));
 
-// SOL/LST arbs
-const solArbs = strategies
-  .filter((s) => ["rate-arb", "campaign"].includes(s.type))
-  .filter((s) => s.assetGroups?.includes("sol-lst"))
-  .sort((a, b) => (b.apy || 0) - (a.apy || 0));
+const best = stableArbs[0];
+// best.primaryBankAddress = bank to deposit into
+// best.secondaryBankAddress = bank to borrow from
+// Execute as: deposit into primaryBank, then borrow from secondaryBank
 ```
 
 **Connecting strategies to banks:** Use `primaryBankAddress` and
@@ -152,33 +233,27 @@ const borrowBankInfo = banksByAddress[strategy.secondaryBankAddress];
 ## On-Chain: Interacting with the Protocol
 
 Use the TypeScript SDK for actions that require signing: create account, deposit,
-withdraw, borrow, repay, loop. Requires a Solana keypair and user authorization.
+withdraw, borrow, repay. Requires a Solana keypair and user authorization.
 
 ### Prerequisites
 
 - Node.js >= 18
 - Solana keypair (JSON byte array)
 - Funded wallet (SOL for tx fees + tokens to deposit)
-- **Paid RPC endpoint** (required for reliable usage)
+- **Paid RPC endpoint** (ask user -- see Agent Workflow step 4)
+- **Jupiter API key** (ask user only if swapping -- see Agent Workflow step 4)
 
 ### RPC setup
 
 The public Solana RPC (`https://api.mainnet-beta.solana.com`) has aggressive rate
-limits and does not support `simulateBundle`. P0 operations (especially loops)
-send multiple transactions and will fail on the public RPC.
+limits. P0 operations that involve multiple transactions will fail on the public
+RPC.
 
 Use a paid RPC provider:
 
 - **Helius** -- https://www.helius.dev (free tier available, sign up for an API key)
 - **Triton** -- https://triton.one
 - **Quicknode** -- https://www.quicknode.com
-
-Once you have an API key, your RPC URL will look like:
-```
-https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY
-```
-
-Always use a paid RPC when interacting with P0 on-chain.
 
 ### Wallet setup
 
@@ -216,11 +291,8 @@ install it separately.
 import { Connection } from "@solana/web3.js";
 import { Project0Client, getConfig } from "@0dotxyz/p0-ts-sdk";
 
-// Use a paid RPC -- public RPC will rate-limit and fail on multi-tx operations
-const connection = new Connection(
-  "https://mainnet.helius-rpc.com/?api-key=YOUR_API_KEY",
-  "confirmed",
-);
+// RPC_URL must be provided by the user (paid RPC required)
+const connection = new Connection(RPC_URL, "confirmed");
 const config = getConfig("production");
 const client = await Project0Client.initialize(connection, config);
 ```
@@ -282,27 +354,9 @@ const bestSolBank = solBanks[0];
 const bankObject = client.getBank(new PublicKey(bestSolBank.bank_address));
 ```
 
-**Asset group comingling rules (critical):**
+---
 
-A single P0 account cannot mix all asset types. Banks are grouped internally
-as DEFAULT (stablecoins), SOL, or STAKED (LSTs). The on-chain program enforces:
-
-| Account contains | Can also hold       | Cannot hold |
-| ---------------- | ------------------- | ----------- |
-| DEFAULT only     | DEFAULT, SOL        | STAKED      |
-| STAKED only      | STAKED, SOL         | DEFAULT     |
-| SOL only         | DEFAULT or STAKED (not both) | --  |
-| DEFAULT + SOL    | DEFAULT, SOL        | STAKED      |
-| STAKED + SOL     | STAKED, SOL         | DEFAULT     |
-
-SOL acts as a bridge -- it can coexist with either DEFAULT or STAKED, but once
-an account holds both SOL and DEFAULT positions, STAKED is locked out (and vice
-versa). Kamino and Drift banks route through separate instruction sets and are
-implicitly isolated.
-
-Violating these rules produces on-chain error `6047` (`assetTagMismatch`).
-If you need positions from both DEFAULT and STAKED groups, create separate
-accounts using different `accountIndex` values.
+## Core Operations
 
 ### Deposit
 
@@ -366,128 +420,85 @@ const sig = await connection.sendRawTransaction(repayTx.serialize());
 await connection.confirmTransaction(sig, "confirmed");
 ```
 
-### Loop (leveraged position)
+---
 
-Loops deposit into one bank and borrow from another in a single flash-loan-based
-operation to amplify yield via rate arbitrage.
+## Swapping Tokens via Jupiter
 
-**Do NOT deposit first then loop.** The loop handles the deposit internally via
-flash loan. Depositing first and then looping will double-count your principal.
-Just call `makeLoopTx` with your tokens in the wallet -- it does everything in
-one atomic operation.
+If the wallet holds a different token than what a strategy requires (e.g.
+holds SOL but the best yield is for bbSOL), swap first using the Jupiter API.
 
-**The SDK handles Jupiter swaps internally.** If the deposit and borrow banks
-have different mints (e.g. SOL deposit, JitoSOL borrow), the SDK automatically
-calls Jupiter to swap between them. You only provide slippage settings. If the
-mints are the same (e.g. USDC P0 and USDC Kamino), no swap is needed and
-Jupiter is skipped entirely.
+**Jupiter requires an API key.** The free tier (60 req/min) is sufficient.
+Ask the user: *"I need a Jupiter API key for the token swap. Get a free one
+at https://portal.jup.ag"*
 
-**You only need the deposit token in your wallet.** The loop flash-borrows,
-swaps if needed, and deposits -- all atomically.
-
-`makeLoopTx` takes a params object. The wrapper auto-injects `program`,
-`marginfiAccount`, `bankMap`, `oraclePrices`, `bankMetadataMap`, and
-`addressLookupTableAccounts`. You must provide:
-
-- `connection` -- your RPC connection
-- `assetShareValueMultiplierByBank` -- from `client.assetShareValueMultiplierByBank`
-- `depositOpts.inputDepositAmount` -- principal in UI units (e.g. `100` for 100 USDC)
-- `depositOpts.depositBank` -- the Bank object from `client.getBank(address)`
-- `depositOpts.tokenProgram` -- from `client.mintDataByBank`
-- `depositOpts.loopMode` -- `"DEPOSIT"` (adds your principal to the loop)
-- `borrowOpts.borrowAmount` -- how much to flash-borrow in UI units
-- `borrowOpts.borrowBank` -- the Bank object from `client.getBank(address)`
-- `borrowOpts.tokenProgram` -- from `client.mintDataByBank`
-- `swapOpts.jupiterOptions` -- slippage config (SDK calls Jupiter for you)
+### Get a quote and execute swap
 
 ```typescript
-// Get Bank objects using bank addresses (e.g. from strategies API)
-const depositBank = client.getBank(new PublicKey(depositBankAddress))!;
-const borrowBank = client.getBank(new PublicKey(borrowBankAddress))!;
+import { VersionedTransaction } from "@solana/web3.js";
 
-// Get token programs from mintDataByBank (NOT from the bank object)
-const depositMintData = client.mintDataByBank.get(depositBank.address.toBase58())!;
-const borrowMintData = client.mintDataByBank.get(borrowBank.address.toBase58())!;
+// JUP_API_KEY must be provided by the user
+const inputMint = "So11111111111111111111111111111111111111112";   // SOL
+const outputMint = "Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B"; // bbSOL
+const amount = 100000000; // raw integer units (0.1 SOL = 100000000 lamports)
 
-const loopResult = await wrappedAccount.makeLoopTx({
-  connection,
-  assetShareValueMultiplierByBank: client.assetShareValueMultiplierByBank,
-  depositOpts: {
-    inputDepositAmount: 100,       // principal deposit in UI units
-    depositBank,                   // Bank object, not a PublicKey
-    tokenProgram: depositMintData.tokenProgram,
-    loopMode: "DEPOSIT",           // include principal in the loop
-  },
-  borrowOpts: {
-    borrowAmount: 100,             // flash-borrow amount in UI units
-    borrowBank,                    // Bank object, not a PublicKey
-    tokenProgram: borrowMintData.tokenProgram,
-  },
-  swapOpts: {
-    jupiterOptions: {
-      slippageMode: "DYNAMIC",
-      slippageBps: 50,
-      platformFeeBps: 0,
+// 1. Get quote
+const quoteResponse = await (
+  await fetch(
+    `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}` +
+    `&outputMint=${outputMint}` +
+    `&amount=${amount}` +
+    `&slippageBps=50` +
+    `&restrictIntermediateTokens=true`,
+    { headers: { "x-api-key": JUP_API_KEY } },
+  )
+).json();
+
+// 2. Build swap transaction
+const swapResponse = await (
+  await fetch("https://api.jup.ag/swap/v1/swap", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": JUP_API_KEY,
     },
-  },
-});
+    body: JSON.stringify({
+      quoteResponse,
+      userPublicKey: wallet.publicKey.toBase58(),
+      dynamicComputeUnitLimit: true,
+      dynamicSlippage: true,
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          maxLamports: 1000000,
+          priorityLevel: "veryHigh",
+        },
+      },
+    }),
+  })
+).json();
 
-for (const tx of loopResult.transactions) {
-  tx.sign([wallet]);
-  const sig = await connection.sendRawTransaction(tx.serialize());
-  await connection.confirmTransaction(sig, "confirmed");
-}
-```
-
-### Additional operations
-
-The wrapper provides these methods for advanced use cases:
-
-| Method                       | Description                                   | Returns               |
-| ---------------------------- | --------------------------------------------- | --------------------- |
-| `makeRepayWithCollatTx()`    | Repay debt using collateral (withdraw + swap) | Versioned tx bundle   |
-| `makeSwapCollateralTx()`     | Swap one collateral asset for another         | Versioned tx bundle   |
-| `makeSwapDebtTx()`           | Swap one debt for another                     | Versioned tx bundle   |
-| `makeFlashLoanTx()`          | Execute a flash loan with custom instructions | Versioned tx          |
-| `makeKaminoDepositTx()`      | Deposit into Kamino-tagged banks              | Versioned tx          |
-| `makeKaminoWithdrawTx()`     | Withdraw from Kamino-tagged banks             | Versioned tx bundle   |
-| `makeDriftDepositTx()`       | Deposit into Drift-tagged banks               | Versioned tx          |
-| `makeDriftWithdrawTx()`      | Withdraw from Drift-tagged banks              | Versioned tx bundle   |
-
-The swap/repay/loop methods take a params object with `connection`,
-`assetShareValueMultiplierByBank`, operation-specific opts, and `swapOpts`
-(Jupiter configuration). Always get `tokenProgram` from
-`client.mintDataByBank.get(bank.address.toBase58())` -- it is not on the bank
-object itself. See the loop example above for the pattern.
-
-### Health monitoring
-
-```typescript
-import { MarginRequirementType } from "@0dotxyz/p0-ts-sdk";
-
-const freeCollateral = wrappedAccount.computeFreeCollateralFromCache();
-const maxBorrow = wrappedAccount.computeMaxBorrowForBank(bankAddress);
-const maxWithdraw = wrappedAccount.computeMaxWithdrawForBank(bankAddress);
-
-const health = wrappedAccount.computeHealthComponentsFromCache(
-  MarginRequirementType.Maintenance,
+// 3. Sign and send
+const swapTx = VersionedTransaction.deserialize(
+  Buffer.from(swapResponse.swapTransaction, "base64")
 );
-const healthFactor = health.assets.dividedBy(health.liabilities).toNumber();
-// > 1.0 = healthy, < 1.0 = liquidatable
-
-const netApy = wrappedAccount.computeNetApy();
+swapTx.sign([wallet]);
+const sig = await connection.sendRawTransaction(swapTx.serialize());
+await connection.confirmTransaction(sig, "confirmed");
+console.log(`Swap: https://solscan.io/tx/${sig}`);
 ```
 
-| Health Factor | Status                                         |
-| ------------- | ---------------------------------------------- |
-| > 2.0         | Healthy                                        |
-| 1.1 - 2.0    | Monitor closely                                |
-| 1.0 - 1.1    | Danger -- repay or deposit more                |
-| < 1.0         | Liquidatable                                   |
+`amount` is in raw integer units (lamports for SOL, smallest unit for SPL
+tokens). For example, 1 USDC = 1000000 (6 decimals), 1 SOL = 1000000000
+(9 decimals). Use the `mint_decimals` field from the banks API to convert.
+
+---
+
+## Health Monitoring & Portfolio
 
 ### Checking portfolio positions
 
 ```typescript
+import { MarginRequirementType } from "@0dotxyz/p0-ts-sdk";
+
 // Fetch bank metadata for human-readable output
 const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
@@ -523,6 +534,24 @@ console.log(`Free collateral: $${freeCollateral.toFixed(2)}`);
 console.log(`Net APY: ${(netApy * 100).toFixed(2)}%`);
 ```
 
+### Health factor reference
+
+| Health Factor | Status                                         |
+| ------------- | ---------------------------------------------- |
+| > 2.0         | Healthy                                        |
+| 1.1 - 2.0    | Monitor closely                                |
+| 1.0 - 1.1    | Danger -- repay or deposit more                |
+| < 1.0         | Liquidatable                                   |
+
+### Health computation methods
+
+```typescript
+const freeCollateral = wrappedAccount.computeFreeCollateralFromCache();
+const maxBorrow = wrappedAccount.computeMaxBorrowForBank(bankAddress);
+const maxWithdraw = wrappedAccount.computeMaxWithdrawForBank(bankAddress);
+const netApy = wrappedAccount.computeNetApy();
+```
+
 ---
 
 ## Transaction Patterns
@@ -541,7 +570,7 @@ const sig = await connection.sendRawTransaction(tx.serialize());
 await connection.confirmTransaction(sig, "confirmed");
 ```
 
-**Pattern B: Versioned transaction bundle** (borrow, withdraw, loop)
+**Pattern B: Versioned transaction bundle** (borrow, withdraw)
 
 Returns a result with `transactions[]` (typed `ExtendedV0Transaction[]`).
 Blockhash is embedded. Send sequentially, confirming each before the next:
@@ -555,138 +584,93 @@ for (const tx of result.transactions) {
 ```
 
 Bundles may contain setup txs (oracle cranks, ATA creation) that must execute
-before the main action. Always send in order. The result includes
-`actionTxIndex` indicating which transaction contains the main operation.
-
-**Simulating before sending:**
-
-Use `simulateBundle` to dry-run a multi-tx bundle before spending gas:
-
-```typescript
-import { simulateBundle } from "@0dotxyz/p0-ts-sdk";
-
-const results = await simulateBundle(
-  connection.rpcEndpoint,
-  result.transactions,
-);
-// Check results for errors before signing and sending
-```
-
-Requires an RPC that supports `simulateBundle` (Helius, Triton). Public RPCs
-may not support this.
-
----
-
-## Common Mints
-
-| Token   | Mint Address                                   | Decimals |
-| ------- | ---------------------------------------------- | -------- |
-| SOL     | `So11111111111111111111111111111111111111112`  | 9        |
-| USDC    | `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | 6     |
-| USDT    | `Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB` | 6     |
-| JitoSOL | `J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn` | 9     |
-| mSOL    | `mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So`  | 9     |
-| bSOL    | `bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1`  | 9     |
-
----
-
-## Swapping Tokens via Jupiter
-
-If the agent's wallet holds a different token than what a strategy requires (e.g.
-holds SOL but wants to deposit JitoSOL), use Jupiter to swap first. This is
-independent of the P0 SDK -- it uses the Jupiter Swap API directly.
-
-**Note:** You only need Jupiter for wallet-level swaps before entering a position.
-The P0 SDK handles Jupiter internally for loops -- you never call Jupiter yourself
-when using `makeLoopTx`.
-
-### Get a quote
-
-```typescript
-const inputMint = "So11111111111111111111111111111111111111112";   // SOL
-const outputMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"; // USDC
-const amount = 100000000; // 0.1 SOL in lamports (raw integer units)
-
-const quoteResponse = await (
-  await fetch(
-    `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}` +
-    `&outputMint=${outputMint}` +
-    `&amount=${amount}` +
-    `&slippageBps=50` +
-    `&restrictIntermediateTokens=true`
-  )
-).json();
-```
-
-`amount` is in raw integer units (lamports for SOL, smallest unit for SPL
-tokens). For example, 1 USDC = 1000000 (6 decimals), 1 SOL = 1000000000
-(9 decimals).
-
-### Build, sign, and send the swap transaction
-
-```typescript
-import { VersionedTransaction } from "@solana/web3.js";
-
-const swapResponse = await (
-  await fetch("https://api.jup.ag/swap/v1/swap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      quoteResponse,
-      userPublicKey: wallet.publicKey.toBase58(),
-      dynamicComputeUnitLimit: true,
-      dynamicSlippage: true,
-      prioritizationFeeLamports: {
-        priorityLevelWithMaxLamports: {
-          maxLamports: 1000000,
-          priorityLevel: "veryHigh",
-        },
-      },
-    }),
-  })
-).json();
-
-// Deserialize, sign, and send
-const swapTx = VersionedTransaction.deserialize(
-  Buffer.from(swapResponse.swapTransaction, "base64")
-);
-swapTx.sign([wallet]);
-const sig = await connection.sendRawTransaction(swapTx.serialize());
-await connection.confirmTransaction(sig, "confirmed");
-console.log(`swap: https://solscan.io/tx/${sig}`);
-```
+before the main action. Always send in order.
 
 ---
 
 ## End-to-End Examples
 
-These examples assume the wallet and RPC connection are already set up (see
-Wallet setup and RPC setup sections above).
+These examples assume `RPC_URL` and the wallet are already set up with values
+provided by the user (see Agent Workflow step 4). `JUP_API_KEY` is only needed
+if swapping tokens.
 
-### Example A: Simple deposit to earn yield
+### Example A: Find best yield across all holdings and deposit
 
-Check the wallet balance, find the best yield, and deposit.
+Check all wallet balances, match to P0 bank yields, deposit the highest-yielding
+asset. If swapping would yield more, swap first.
 
 ```typescript
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Project0Client, getConfig, MarginRequirementType } from "@0dotxyz/p0-ts-sdk";
 
-// --- 1. Check wallet balance ---
+// --- 1. Check ALL wallet balances ---
 const solBalance = await connection.getBalance(wallet.publicKey);
-console.log(`SOL balance: ${solBalance / 1e9}`);
+console.log(`SOL: ${solBalance / 1e9}`);
 
-// --- 2. Find the best deposit yield ---
+const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
+  wallet.publicKey,
+  { programId: new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA") },
+);
+
+const holdings: { mint: string; amount: number; decimals: number }[] = [];
+
+// Add SOL
+if (solBalance > 0) {
+  holdings.push({
+    mint: "So11111111111111111111111111111111111111112",
+    amount: solBalance / 1e9,
+    decimals: 9,
+  });
+}
+
+// Add all SPL tokens with non-zero balance
+for (const account of tokenAccounts.value) {
+  const parsed = account.account.data.parsed.info;
+  const uiAmount = parsed.tokenAmount.uiAmount;
+  if (uiAmount > 0) {
+    holdings.push({
+      mint: parsed.mint,
+      amount: uiAmount,
+      decimals: parsed.tokenAmount.decimals,
+    });
+    console.log(`${parsed.mint}: ${uiAmount}`);
+  }
+}
+
+// --- 2. Fetch P0 bank data ---
 const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
 
-// Best SOL deposit yield
-const solBanks = banksData
-  .filter((b) => b.symbol === "SOL")
-  .sort((a, b) => b.deposit_apy - a.deposit_apy);
-const bestSolBank = solBanks[0];
-console.log(`Best SOL yield: ${bestSolBank.deposit_apy.toFixed(2)}% on ${bestSolBank.venue}`);
+// --- 3. Match holdings to best yields ---
+const opportunities = [];
+for (const holding of holdings) {
+  const matchingBanks = banksData
+    .filter((b) => b.mint === holding.mint)
+    .sort((a, b) => b.deposit_apy - a.deposit_apy);
+  if (matchingBanks.length > 0) {
+    const best = matchingBanks[0];
+    opportunities.push({
+      ...holding,
+      symbol: best.symbol,
+      bank: best,
+      depositApy: best.deposit_apy,
+      usdValue: holding.amount * best.usd_price,
+    });
+  }
+}
 
-// --- 3. Initialize P0 client and load/create account ---
+// Sort by APY descending
+opportunities.sort((a, b) => b.depositApy - a.depositApy);
+
+console.log("\nDeposit opportunities:");
+for (const opp of opportunities) {
+  console.log(`  ${opp.symbol}: ${opp.amount.toFixed(4)} (~$${opp.usdValue.toFixed(2)}) at ${opp.depositApy.toFixed(2)}% APY on ${opp.bank.venue}`);
+}
+
+// --- 4. Deposit the best opportunity ---
+const best = opportunities[0];
+console.log(`\nDepositing ${best.amount.toFixed(4)} ${best.symbol} at ${best.depositApy.toFixed(2)}% APY`);
+
 const client = await Project0Client.initialize(connection, getConfig("production"));
 const addrs = await client.getAccountAddresses(wallet.publicKey);
 let wrappedAccount;
@@ -702,260 +686,87 @@ if (addrs.length > 0) {
   wrappedAccount = await client.fetchAccount(created[0]!);
 }
 
-// --- 4. Deposit SOL (leave some for tx fees) ---
-const depositAmount = Math.floor(((solBalance / 1e9) - 0.01) * 10000) / 10000; // keep 0.01 SOL for fees
-const bankAddress = new PublicKey(bestSolBank.bank_address);
+const bankAddress = new PublicKey(best.bank.bank_address);
+
+// For SOL, keep some for tx fees
+const depositAmount = best.mint === "So11111111111111111111111111111111111111112"
+  ? Math.floor((best.amount - 0.01) * 10000) / 10000
+  : best.amount;
 
 const depositTx = await wrappedAccount.makeDepositTx(bankAddress, depositAmount);
 depositTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
 depositTx.sign(wallet);
 const sig = await connection.sendRawTransaction(depositTx.serialize());
 await connection.confirmTransaction(sig, "confirmed");
-console.log(`Deposited ${depositAmount} SOL: https://solscan.io/tx/${sig}`);
+console.log(`Deposited: https://solscan.io/tx/${sig}`);
 ```
 
-### Example B: SOL/LST rate-arb loop (for SOL holders)
+### Example B: Deposit collateral then borrow stablecoins
 
-Find the best SOL/LST strategy, swap SOL into the deposit token if needed,
-then execute a leveraged loop. You only need the deposit token in your wallet.
+Deposit an asset as collateral, then borrow stablecoins against it.
 
 ```typescript
-import { Connection, Keypair, PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Project0Client, getConfig, MarginRequirementType } from "@0dotxyz/p0-ts-sdk";
 
-// --- 1. Check wallet balance ---
-const solBalance = await connection.getBalance(wallet.publicKey);
-console.log(`SOL balance: ${solBalance / 1e9}`);
-
-// --- 2. Find the best SOL/LST strategy ---
-const [strategiesRes, banksRes] = await Promise.all([
-  fetch("https://p0-agents.vercel.app/api/strategies"),
-  fetch("https://p0-agents.vercel.app/api/banks"),
-]);
-const strategies = await strategiesRes.json();
+// --- 1. Setup (assumes client and wrappedAccount are initialized) ---
+const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
 const banksData = await banksRes.json();
-const bankInfoByAddress = Object.fromEntries(
-  banksData.map((b) => [b.bank_address, b])
+const banksByAddress = Object.fromEntries(banksData.map((b) => [b.bank_address, b]));
+
+// --- 2. Deposit collateral (e.g. SOL) ---
+const solBank = banksData
+  .filter((b) => b.symbol === "SOL" && b.venue === "P0")
+  .sort((a, b) => b.deposit_apy - a.deposit_apy)[0];
+
+const depositBankAddress = new PublicKey(solBank.bank_address);
+const solBalance = await connection.getBalance(wallet.publicKey);
+const depositAmount = Math.floor(((solBalance / 1e9) - 0.02) * 10000) / 10000;
+
+const depositTx = await wrappedAccount.makeDepositTx(depositBankAddress, depositAmount);
+depositTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+depositTx.sign(wallet);
+const depositSig = await connection.sendRawTransaction(depositTx.serialize());
+await connection.confirmTransaction(depositSig, "confirmed");
+console.log(`Deposited ${depositAmount} SOL: https://solscan.io/tx/${depositSig}`);
+
+// --- 3. Check borrowing capacity ---
+// Refresh account state after deposit
+wrappedAccount = await client.fetchAccount(
+  (await client.getAccountAddresses(wallet.publicKey))[0]!
 );
 
-const solLstArbs = strategies
-  .filter((s) => s.type === "rate-arb")
-  .filter((s) => s.assetGroups?.includes("sol-lst"))
-  .sort((a, b) => (b.apy || 0) - (a.apy || 0));
+const usdcBank = banksData
+  .filter((b) => b.symbol === "USDC" && b.venue === "P0")[0];
+const borrowBankAddress = new PublicKey(usdcBank.bank_address);
 
-const best = solLstArbs[0];
-const depositInfo = bankInfoByAddress[best.primaryBankAddress];
-const borrowInfo = bankInfoByAddress[best.secondaryBankAddress];
-console.log(`Strategy: ${best.heading} at ${(best.apy * 100).toFixed(2)}% APY`);
-console.log(`Deposit: ${depositInfo.symbol} (${depositInfo.venue})`);
-console.log(`Borrow: ${borrowInfo.symbol} (${borrowInfo.venue})`);
+const maxBorrow = wrappedAccount.computeMaxBorrowForBank(borrowBankAddress);
+console.log(`Max USDC borrow: ${maxBorrow.toFixed(2)}`);
 
-// --- 3. Swap SOL into the deposit token if needed ---
-// You only need the deposit token in your wallet. If the strategy deposits
-// e.g. JitoSOL, swap your SOL into JitoSOL first.
-if (depositInfo.mint !== "So11111111111111111111111111111111111111112") {
-  const swapAmountLamports = Math.floor((solBalance - 10000000) * 0.9); // keep SOL for fees
-  const quoteResponse = await (
-    await fetch(
-      `https://api.jup.ag/swap/v1/quote?inputMint=So11111111111111111111111111111111111111112` +
-      `&outputMint=${depositInfo.mint}` +
-      `&amount=${swapAmountLamports}` +
-      `&slippageBps=50` +
-      `&restrictIntermediateTokens=true`
-    )
-  ).json();
+// Borrow conservatively (50% of max to maintain healthy margin)
+const borrowAmount = Math.floor(maxBorrow.toNumber() * 0.5 * 100) / 100;
+console.log(`Borrowing ${borrowAmount} USDC (50% of max)`);
 
-  const swapResponse = await (
-    await fetch("https://api.jup.ag/swap/v1/swap", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        quoteResponse,
-        userPublicKey: wallet.publicKey.toBase58(),
-        dynamicComputeUnitLimit: true,
-        dynamicSlippage: true,
-        prioritizationFeeLamports: {
-          priorityLevelWithMaxLamports: {
-            maxLamports: 1000000,
-            priorityLevel: "veryHigh",
-          },
-        },
-      }),
-    })
-  ).json();
-
-  const swapTx = VersionedTransaction.deserialize(
-    Buffer.from(swapResponse.swapTransaction, "base64")
-  );
-  swapTx.sign([wallet]);
-  const sig = await connection.sendRawTransaction(swapTx.serialize());
-  await connection.confirmTransaction(sig, "confirmed");
-  console.log(`Swapped SOL -> ${depositInfo.symbol}: https://solscan.io/tx/${sig}`);
-}
-
-// --- 4. Initialize P0 client and load account ---
-const client = await Project0Client.initialize(connection, getConfig("production"));
-const addrs = await client.getAccountAddresses(wallet.publicKey);
-let wrappedAccount;
-if (addrs.length > 0) {
-  wrappedAccount = await client.fetchAccount(addrs[0]!);
-} else {
-  const createTx = await client.createMarginfiAccountTx(wallet.publicKey, 0);
-  createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-  createTx.sign(wallet);
-  const createSig = await connection.sendRawTransaction(createTx.serialize());
-  await connection.confirmTransaction(createSig, "confirmed");
-  const created = await client.getAccountAddresses(wallet.publicKey);
-  wrappedAccount = await client.fetchAccount(created[0]!);
-}
-
-// --- 5. Execute the loop ---
-// Do NOT deposit first. The loop handles deposit internally via flash loan.
-const depositBank = client.getBank(new PublicKey(best.primaryBankAddress))!;
-const borrowBank = client.getBank(new PublicKey(best.secondaryBankAddress))!;
-const depositMintData = client.mintDataByBank.get(depositBank.address.toBase58())!;
-const borrowMintData = client.mintDataByBank.get(borrowBank.address.toBase58())!;
-
-// Determine how much of the deposit token is in the wallet
-let depositAmount: number;
-if (depositInfo.mint === "So11111111111111111111111111111111111111112") {
-  const currentSol = await connection.getBalance(wallet.publicKey);
-  depositAmount = (currentSol / 1e9) - 0.01; // keep some for fees
-} else {
-  const ata = PublicKey.findProgramAddressSync(
-    [
-      wallet.publicKey.toBytes(),
-      new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").toBytes(),
-      new PublicKey(depositInfo.mint).toBytes(),
-    ],
-    new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"),
-  )[0];
-  const tokenBalance = await connection.getTokenAccountBalance(ata);
-  depositAmount = Number(tokenBalance.value.uiAmount);
-}
-
-// Borrow amount determines leverage (borrowAmount ~= depositAmount for 2x)
-const borrowAmount = depositAmount;
-
-const loopResult = await wrappedAccount.makeLoopTx({
-  connection,
-  assetShareValueMultiplierByBank: client.assetShareValueMultiplierByBank,
-  depositOpts: {
-    inputDepositAmount: depositAmount,
-    depositBank,
-    tokenProgram: depositMintData.tokenProgram,
-    loopMode: "DEPOSIT",
-  },
-  borrowOpts: {
-    borrowAmount,
-    borrowBank,
-    tokenProgram: borrowMintData.tokenProgram,
-  },
-  swapOpts: {
-    jupiterOptions: {
-      slippageMode: "DYNAMIC",
-      slippageBps: 50,
-      platformFeeBps: 0,
-    },
-  },
-});
-
-for (const tx of loopResult.transactions) {
+// --- 4. Borrow ---
+const borrowResult = await wrappedAccount.makeBorrowTx(borrowBankAddress, borrowAmount);
+for (const tx of borrowResult.transactions) {
   tx.sign([wallet]);
-  const sig = await connection.sendRawTransaction(tx.serialize());
-  await connection.confirmTransaction(sig, "confirmed");
-  console.log(`Loop tx: https://solscan.io/tx/${sig}`);
+  const borrowSig = await connection.sendRawTransaction(tx.serialize());
+  await connection.confirmTransaction(borrowSig, "confirmed");
+  console.log(`Borrow tx: https://solscan.io/tx/${borrowSig}`);
 }
 
-// --- 6. Check portfolio and account health ---
-wrappedAccount = await client.fetchAccount(addrs[0]!);
-
-for (const balance of wrappedAccount.activeBalances) {
-  const bankAddr = balance.bankPk.toBase58();
-  const bank = client.getBank(balance.bankPk);
-  if (!bank) continue;
-  const multiplier = client.assetShareValueMultiplierByBank.get(bankAddr);
-  const qty = balance.computeQuantityUi(bank, multiplier);
-  const info = bankInfoByAddress[bankAddr];
-  const label = info ? `${info.symbol} (${info.venue})` : bankAddr;
-  if (qty.assets.gt(0)) console.log(`Deposit: ${qty.assets.toFixed(4)} ${label}`);
-  if (qty.liabilities.gt(0)) console.log(`Borrow:  ${qty.liabilities.toFixed(4)} ${label}`);
-}
-
-const accountValue = wrappedAccount.computeAccountValue();
+// --- 5. Check health ---
+wrappedAccount = await client.fetchAccount(
+  (await client.getAccountAddresses(wallet.publicKey))[0]!
+);
 const health = wrappedAccount.computeHealthComponentsFromCache(
   MarginRequirementType.Maintenance,
 );
 const healthFactor = health.assets.dividedBy(health.liabilities).toNumber();
 const netApy = wrappedAccount.computeNetApy();
-console.log(`Account value: $${accountValue.toFixed(2)}`);
 console.log(`Health factor: ${healthFactor.toFixed(2)}`);
 console.log(`Net APY: ${(netApy * 100).toFixed(2)}%`);
-```
-
-### Example C: Stablecoin rate-arb loop (for USDC/USDT holders)
-
-Same pattern but for stablecoin holders. Stablecoin-to-stablecoin loops often
-have the same mint on both sides, so no Jupiter swap is needed.
-
-```typescript
-// --- 1. Find the best stablecoin strategy ---
-const stableArbs = strategies
-  .filter((s) => s.type === "rate-arb")
-  .filter((s) => s.assetGroups?.includes("stablecoins"))
-  .sort((a, b) => (b.apy || 0) - (a.apy || 0));
-
-const best = stableArbs[0];
-const depositInfo = bankInfoByAddress[best.primaryBankAddress];
-const borrowInfo = bankInfoByAddress[best.secondaryBankAddress];
-console.log(`Strategy: ${best.heading} at ${(best.apy * 100).toFixed(2)}% APY`);
-// e.g. "USDC (P0) / USDC (Kamino)" -- same mint, no Jupiter needed
-
-// --- 2. Swap into the deposit token if wallet holds the wrong stablecoin ---
-// If you hold USDT but the strategy needs USDC, swap first via Jupiter
-// (see Swapping Tokens via Jupiter section). If you already hold the right
-// token, skip this step.
-
-// --- 3. Execute the loop (same pattern as Example B step 5) ---
-const depositBank = client.getBank(new PublicKey(best.primaryBankAddress))!;
-const borrowBank = client.getBank(new PublicKey(best.secondaryBankAddress))!;
-const depositMintData = client.mintDataByBank.get(depositBank.address.toBase58())!;
-const borrowMintData = client.mintDataByBank.get(borrowBank.address.toBase58())!;
-
-const depositAmount = 100; // 100 USDC
-const borrowAmount = 100;  // 2x leverage
-
-const loopResult = await wrappedAccount.makeLoopTx({
-  connection,
-  assetShareValueMultiplierByBank: client.assetShareValueMultiplierByBank,
-  depositOpts: {
-    inputDepositAmount: depositAmount,
-    depositBank,
-    tokenProgram: depositMintData.tokenProgram,
-    loopMode: "DEPOSIT",
-  },
-  borrowOpts: {
-    borrowAmount,
-    borrowBank,
-    tokenProgram: borrowMintData.tokenProgram,
-  },
-  swapOpts: {
-    jupiterOptions: {
-      slippageMode: "DYNAMIC",
-      slippageBps: 50,
-      platformFeeBps: 0,
-    },
-  },
-});
-
-for (const tx of loopResult.transactions) {
-  tx.sign([wallet]);
-  const sig = await connection.sendRawTransaction(tx.serialize());
-  await connection.confirmTransaction(sig, "confirmed");
-  console.log(`Loop tx: https://solscan.io/tx/${sig}`);
-}
-
-// --- 4. Check portfolio (same as Example B step 6) ---
 ```
 
 ---
@@ -966,8 +777,7 @@ for (const tx of loopResult.transactions) {
 | ------------------------------ | -------------------------------------- | ------------------------------------------------------- |
 | `Bank not found`               | No bank for the given address          | Verify bank address from banks API                      |
 | `Insufficient free collateral` | Not enough collateral to borrow        | Deposit more or borrow less                             |
-| `assetTagMismatch` (6047)      | Incompatible asset types in account    | Use separate accounts for DEFAULT vs STAKED positions   |
 | `Simulation failed`            | Transaction would fail on-chain        | Check logs -- often stale oracle or insufficient balance |
 | `Transaction expired`          | Blockhash expired before confirmation  | Retry with fresh blockhash                              |
 | `Account not found`            | P0 account address does not exist      | Verify address or create a new account                  |
-| `simulateBundle not supported` | RPC lacks bundle simulation            | Use paid RPC (Helius, Triton) or simulate individually  |
+| `429 Too Many Requests`        | RPC rate limited                       | Use a paid RPC provider                                 |
