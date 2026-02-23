@@ -22,7 +22,7 @@ export default function LottieBackground() {
 
   return (
     <div
-      className={`absolute inset-0 -top-8 left-1/2 hidden -translate-x-1/2 transition-opacity duration-1000 lg:block ${
+      className={`absolute inset-0 top-16 left-1/2 hidden -translate-x-1/2 transition-opacity duration-1000 lg:block ${
         isLoaded ? "opacity-100" : "opacity-0"
       }`}
       style={{ width: "2560px", height: "395px" }}

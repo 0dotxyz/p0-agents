@@ -1,28 +1,58 @@
 const features = [
   {
     icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
       </svg>
     ),
-    title: "Discover yields & strategies",
+    title: "Discover opportunities & strategies",
     description:
-      "Query real-time deposit APYs and pre-computed rate-arb strategies across P0, Kamino, and Drift. No SDK or wallet required.",
+      "Query for real-time rates and strategies across Solana Defi, including P0, Kamino, Drift, and Jupiter.",
   },
   {
     icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <line x1="12" y1="1" x2="12" y2="23" />
         <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
       </svg>
     ),
-    title: "Deposit & earn yield",
+    title: "Earn yield on idle funds",
     description:
-      "Deposit idle funds to earn optimized yield instead of leaving them in a wallet. Multi-venue aggregation finds the best rates automatically.",
+      "Deposit idle funds to earn optimized yield across all of Solana defi, instead of leaving them in a wallet.",
   },
   {
     icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <rect x="2" y="4" width="20" height="16" rx="2" />
         <path d="M2 10h20" />
         <path d="M6 14h2" />
@@ -35,7 +65,17 @@ const features = [
   },
   {
     icon: (
-      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        width="24"
+        height="24"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
         <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" />
         <path d="M12 6v6l4 2" />
       </svg>
@@ -48,13 +88,15 @@ const features = [
 
 export default function Features() {
   return (
-    <section id="features" className="relative mx-auto max-w-5xl px-4 py-16 md:px-6 md:py-24">
+    <section id="features" className="relative mx-auto max-w-5xl px-4 py-16">
       {/* Section header */}
-      <div className="mb-16 flex flex-col items-center text-center">
+      <div className="mb-16 flex flex-col items-center text-center max-w-md mx-auto">
         <span className="mb-4 font-mono text-xs uppercase tracking-wider text-p0-purple">
           Capabilities
         </span>
-        <h2 className="text-3xl font-medium md:text-4xl">What agents can do</h2>
+        <h2 className="text-3xl font-medium md:text-4xl">
+          What agents can do with the Project 0 skill
+        </h2>
       </div>
 
       {/* Grid */}

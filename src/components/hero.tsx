@@ -13,12 +13,12 @@ export default function Hero() {
   };
 
   return (
-    <section className="relative overflow-hidden pt-20">
+    <section className="relative overflow-hidden pt-12">
       {/* Mobile fallback: static SVG */}
       <img
         src="/images/backgrounds/dark/main.svg"
         alt=""
-        className="absolute inset-0 -top-8 left-1/2 w-[2560px] -translate-x-1/2 lg:hidden"
+        className="absolute inset-0 left-1/2 w-[2560px] -translate-x-1/2 lg:hidden"
         loading="eager"
       />
 
@@ -26,33 +26,35 @@ export default function Hero() {
       <LottieBackground />
 
       <div className="relative mx-auto max-w-5xl px-4 md:px-6">
-        <div className="flex flex-col items-center pb-16 pt-16 md:pb-24 md:pt-24">
+        <div className="flex flex-col items-center pb-16 pt-24">
           {/* Blurred backdrop */}
-          <div className="absolute left-1/2 top-1/2 h-[200px] w-[320px] -translate-x-1/2 -translate-y-1/2 bg-[#171721] blur-[60px] lg:h-[280px] lg:w-[600px]" />
+          <div className="absolute left-1/2 top-1/2 h-[200px] w-[320px] -translate-x-1/2 -translate-y-1/2 bg-[#171721] blur-[60px] lg:h-[300px] lg:w-[600px]" />
 
           {/* Content */}
-          <div className="relative flex flex-col items-center space-y-6">
+          <div className="relative flex flex-col items-center space-y-4">
             {/* Badge */}
             <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs uppercase text-[var(--color-muted-foreground)] backdrop-blur-sm">
               <span className="inline-block h-1.5 w-1.5 rounded-full bg-p0-purple animate-pulse" />
               Powered by Project 0
             </div>
 
-            {/* Heading */}
-            <h1 className="gradient-text py-1 text-center text-5xl font-medium leading-tight md:text-6xl lg:text-7xl">
-              Credit for Agents
-            </h1>
+            <div className="space-y-2">
+              {/* Heading */}
+              <h1 className="gradient-text py-1 text-center text-5xl font-medium leading-tight md:text-6xl lg:text-7xl">
+                DeFi for AI Agents
+              </h1>
 
-            {/* Subheading */}
-            <p className="max-w-xl text-center text-lg text-[var(--color-muted-foreground)] md:text-xl lg:text-2xl">
-              The credit infrastructure layer for the agentic economy
-            </p>
+              {/* Subheading */}
+              <p className="max-w-2xl text-center text-lg text-[var(--color-muted-foreground)] md:text-xl lg:text-2xl">
+                Yield and credit infrastructure layer for the agentic economy.
+              </p>
+            </div>
 
             {/* Install command */}
             <div id="install" className="mt-4 w-full max-w-md">
               <div className="group relative flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4 backdrop-blur-sm transition-all hover:border-white/20 hover:bg-white/[0.06]">
                 <span className="text-p0-purple font-mono text-sm">$</span>
-                <code className="flex-1 font-mono text-sm text-white/90">
+                <code className="flex-1 font-mono text text-white/90">
                   npx skills add 0dotxyz/skill
                 </code>
                 <button
