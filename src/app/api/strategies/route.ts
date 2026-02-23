@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 const UPSTREAM_URL = "https://app.0.xyz/api/strategies";
 const TOP_N = 3;
+const TOP_N_MANUAL = 1; // JLP loops -- only show the top-yielding one
 const EXCLUDED_TYPES = new Set(["directional"]);
 const PICKED_FIELDS = [
   "heading",
@@ -56,9 +57,10 @@ export async function GET() {
 
     /* Take top N per type by APY, strip to picked fields */
     const result: Record<string, unknown>[] = [];
-    for (const items of byType.values()) {
+    for (const [type, items] of byType.entries()) {
       items.sort((a, b) => (b.apy ?? 0) - (a.apy ?? 0));
-      for (const s of items.slice(0, TOP_N)) {
+      const limit = type === "manual" ? TOP_N_MANUAL : TOP_N;
+      for (const s of items.slice(0, limit)) {
         const picked: Record<string, unknown> = {};
         for (const f of PICKED_FIELDS) {
           picked[f] = s[f] ?? null;
