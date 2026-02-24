@@ -1,6 +1,6 @@
 ---
 name: p0-credit
-version: 2.0.0
+version: 2.1.0
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
@@ -17,7 +17,19 @@ homepage: https://0.xyz
 When a user asks to earn yield, deposit, borrow, or put funds to work on P0,
 follow these steps in order. Do NOT skip ahead to writing code.
 
-### Step 1: Check ALL wallet balances
+### Step 1: Collect RPC credential
+
+The agent needs a paid Solana RPC URL before it can do anything on-chain
+(checking balances, sending transactions). Ask the user immediately:
+
+*"I need a paid Solana RPC URL to interact with P0. Do you have one?
+(Helius has a free tier at https://www.helius.dev)"*
+
+Do not assume a value. Do not use a placeholder. Wait for the user to provide
+a real URL. Read-only operations (fetching rates, strategies from the P0 API)
+do not require an RPC.
+
+### Step 2: Check ALL wallet balances
 
 Check the wallet's native SOL balance AND enumerate every SPL token account.
 Do NOT only check SOL -- the wallet may hold LSTs (JitoSOL, bbSOL, mSOL),
@@ -45,18 +57,25 @@ const token2022Accounts = await connection.getParsedTokenAccountsByOwner(
 List every token with a non-zero balance. Include mint address, symbol (if
 known), and UI amount.
 
-### Step 2: Fetch P0 data
+### Step 3: Fetch P0 data
 
 Fetch banks and strategies from the P0 APIs (see Read-Only section below).
 
-### Step 3: Recommend optimal action
+### Step 4: Recommend optimal action
 
 Match wallet holdings to available bank yields. For each token the wallet
 holds, find the best deposit APY from the banks data. Compare across all
 holdings to find the highest overall yield.
 
+If the wallet holds tokens that have no corresponding P0 bank (e.g. memecoins,
+niche tokens), skip them and note they cannot be deposited directly. Suggest
+swapping them into a supported token if the user wants to maximize yield.
+
 If swapping to a different token would yield significantly more, recommend the
 swap and explain the tradeoff.
+
+Consider depositing multiple assets if the wallet holds several supported
+tokens -- not just the single highest-yield one.
 
 **Present the plan to the user with specific numbers before executing.**
 
@@ -64,24 +83,20 @@ Example response: *"Your wallet holds 0.09 bbSOL and 0.10 SOL. bbSOL earns
 15.2% APY on P0 vs SOL at 4.9%. I recommend depositing your bbSOL for the
 higher yield, and swapping your spare SOL into more bbSOL. Shall I proceed?"*
 
-### Step 4: Collect credentials
+### Step 5: Collect swap credentials (only if needed)
 
-Ask the user for what is needed based on the plan from step 3. Do not assume
-values. Do not use placeholders. Prompt and wait for real values.
+If the plan from step 4 involves swapping tokens, ask the user for a Jupiter
+API key:
 
-- **Always needed:** *"I need a paid Solana RPC URL to interact with P0.
-  Do you have one? (Helius has a free tier at https://www.helius.dev)"*
+*"I need a Jupiter API key for the token swap. You can get a free one at
+https://portal.jup.ag (60 req/min)"*
 
-- **Only if swapping tokens:** *"I need a Jupiter API key for the token swap.
-  You can get a free one at https://portal.jup.ag (60 req/min)"*
+If no swap is needed (user is depositing tokens already in their wallet), skip
+this step. Jupiter is not needed for deposits, withdrawals, borrows, or repays.
 
-If the user only needs to deposit tokens already in their wallet, skip the
-Jupiter API key -- it is not needed for deposits, withdrawals, borrows, or
-repays.
+### Step 6: Execute
 
-### Step 5: Execute
-
-Execute the plan from step 3. Swap first if needed (see Swapping Tokens
+Execute the plan from step 4. Swap first if needed (see Swapping Tokens
 section), then deposit, borrow, etc. Report results with Solscan transaction
 links: `https://solscan.io/tx/${signature}`
 
@@ -174,27 +189,19 @@ const res = await fetch("https://p0-agents.vercel.app/api/strategies");
 const strategies = await res.json();
 ```
 
-**Key fields per strategy:**
+**Fields per strategy:**
 
 | Field                  | Description                                         |
 | ---------------------- | --------------------------------------------------- |
-| `type`                 | Strategy type (see table below)                     |
-| `heading`              | Human-readable name                                 |
-| `apy`                  | Projected APY (decimal, e.g. 0.085 = 8.5%)          |
-| `leverage`             | Leverage multiplier                                 |
-| `spread`               | Rate spread between deposit and borrow              |
+| `heading`              | Human-readable name (e.g. "bbSOL/SOL Rate Arbitrage") |
 | `primaryBankAddress`   | Bank to deposit into                                |
 | `secondaryBankAddress` | Bank to borrow from                                 |
-| `assetGroups`          | Categories: `stablecoins`, `sol-lst`, `blue-chip`   |
+| `spread`               | Rate spread between deposit and borrow              |
+| `leverage`             | Leverage multiplier                                 |
+| `apy`                  | Projected APY (decimal, e.g. 0.085 = 8.5%)          |
 
-**Strategy types:**
-
-| Type          | Description                         |
-| ------------- | ----------------------------------- |
-| `rate-arb`    | Pure rate arbitrage (deposit vs borrow spread) |
-| `campaign`    | Includes emissions or points        |
-| `manual`      | Curated strategies (e.g. JLP)       |
-| `directional` | Long/short strategies               |
+The endpoint returns the top strategies sorted by APY descending. The `heading`
+field describes the strategy type (e.g. "Rate Arbitrage", "Loop", etc.).
 
 **Using strategies to plan deposits and borrows:**
 
@@ -202,13 +209,8 @@ Strategies show which deposit/borrow pairs have the best spread. The agent can
 execute these as separate deposit + borrow operations:
 
 ```typescript
-// Find the best stablecoin strategy
-const stableArbs = strategies
-  .filter((s) => s.type === "rate-arb")
-  .filter((s) => s.assetGroups?.includes("stablecoins"))
-  .sort((a, b) => (b.apy || 0) - (a.apy || 0));
-
-const best = stableArbs[0];
+// Strategies are already sorted by APY descending
+const best = strategies[0];
 // best.primaryBankAddress = bank to deposit into
 // best.secondaryBankAddress = bank to borrow from
 // Execute as: deposit into primaryBank, then borrow from secondaryBank
@@ -240,8 +242,8 @@ withdraw, borrow, repay. Requires a Solana keypair and user authorization.
 - Node.js >= 18
 - Solana keypair (JSON byte array)
 - Funded wallet (SOL for tx fees + tokens to deposit)
-- **Paid RPC endpoint** (ask user -- see Agent Workflow step 4)
-- **Jupiter API key** (ask user only if swapping -- see Agent Workflow step 4)
+- **Paid RPC endpoint** (ask user -- see Agent Workflow step 1)
+- **Jupiter API key** (ask user only if swapping -- see Agent Workflow step 5)
 
 ### RPC setup
 
@@ -284,6 +286,8 @@ npm install @0dotxyz/p0-ts-sdk
 
 `@solana/web3.js` (1.98.4) is bundled as a direct dependency -- no need to
 install it separately.
+
+Full SDK documentation: https://docs.0.xyz/docs/typescript-sdk/getting-started
 
 ### Initialize client
 
@@ -361,6 +365,10 @@ const bankObject = client.getBank(new PublicKey(bestSolBank.bank_address));
 ### Deposit
 
 Returns a legacy transaction. Amounts are in UI units (human-readable numbers).
+
+**SOL gas reserve:** When depositing SOL, always keep at least **0.01 SOL** in
+the wallet for transaction fees. Depositing the entire SOL balance will cause
+subsequent transactions to fail.
 
 ```typescript
 const depositTx = await wrappedAccount.makeDepositTx(bankAddress, 100);
@@ -591,8 +599,8 @@ before the main action. Always send in order.
 ## End-to-End Examples
 
 These examples assume `RPC_URL` and the wallet are already set up with values
-provided by the user (see Agent Workflow step 4). `JUP_API_KEY` is only needed
-if swapping tokens.
+provided by the user (see Agent Workflow steps 1 and 5). `JUP_API_KEY` is only
+needed if swapping tokens.
 
 ### Example A: Find best yield across all holdings and deposit
 
