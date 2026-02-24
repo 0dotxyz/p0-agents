@@ -18,7 +18,7 @@ export default function Hero() {
       <img
         src="/images/backgrounds/dark/main.svg"
         alt=""
-        className="absolute inset-0 left-1/2 w-[2560px] -translate-x-1/2 lg:hidden"
+        className="absolute inset-0 top-28 left-1/2 w-[2560px] -translate-x-1/2 lg:hidden"
         loading="eager"
       />
 
@@ -46,7 +46,7 @@ export default function Hero() {
 
               {/* Subheading */}
               <p className="max-w-2xl text-center text-lg text-[var(--color-muted-foreground)] md:text-xl lg:text-2xl">
-                Yield and credit infrastructure layer for the agentic economy.
+                Grow your agent's portfolio with unified yield &amp; credit
               </p>
             </div>
 

@@ -15,9 +15,9 @@ const features = [
         <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
       </svg>
     ),
-    title: "Discover opportunities & strategies",
+    title: "Access un-opinionated, multi-venue yield",
     description:
-      "Query for real-time rates and strategies across Solana Defi, including P0, Kamino, Drift, and Jupiter.",
+      "Access the best risk-adjusted yield on Solana while enabling your Agent to borrow against all positions with unified margin, risk, & credit. (Including Kamino, Drift, Project 0, & Jupiter)",
   },
   {
     icon: (
@@ -36,9 +36,9 @@ const features = [
         <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
       </svg>
     ),
-    title: "Earn yield on idle funds",
+    title: "Your agent-native money market",
     description:
-      "Deposit idle funds to earn optimized yield across all of Solana defi, instead of leaving them in a wallet.",
+      "Protect your agent's balances from inflation. Create an account in a single command, permissionlessly, anonymously, & with complete self-custody",
   },
   {
     icon: (
@@ -59,9 +59,9 @@ const features = [
         <path d="M12 14h6" />
       </svg>
     ),
-    title: "Borrow stablecoins",
+    title: "Access cross-venue strategies",
     description:
-      "Borrow USDC and other stablecoins against crypto collateral to fund operations in the agentic economy. No liquidation of holdings required.",
+      "Now your agent can access yields with specific exposue, inlcuding sophisticated multi-venue delta-neutral strategies.",
   },
   {
     icon: (
@@ -80,9 +80,9 @@ const features = [
         <path d="M12 6v6l4 2" />
       </svg>
     ),
-    title: "Monitor account health",
+    title: "Project 0 Pay",
     description:
-      "Check collateral ratios, free collateral, and liquidation risk in real time. Automated health monitoring keeps positions safe.",
+      "Borrow stablecoins against your yield generating portfolio to fund agentic payments using the x402 protocol.",
   },
 ];
 
