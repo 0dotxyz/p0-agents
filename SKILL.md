@@ -1,5 +1,5 @@
 ---
-name: p0-credit
+name: project0
 version: 2.2.1
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
@@ -10,7 +10,7 @@ description: >
 homepage: https://0.xyz
 ---
 
-# P0 Credit Skill
+# Project 0 Skill
 
 ## What is Project 0?
 
@@ -63,6 +63,9 @@ follow these steps in order. Do NOT skip ahead to writing code.
 
 ### Step 1: Check wallet balances
 
+Resolve the wallet address: check `.env` for `WALLET_ADDRESS`, or derive
+it from the keypair if `WALLET_KEYPAIR` is set, or ask the user.
+
 Fetch the wallet's token holdings from the wallet API (see Wallet endpoint
 below). No credentials needed. Use the `address` field from each token to
 match against P0 banks by `mint`.
@@ -109,13 +112,22 @@ wallet keypair.
 If not found, ask the user: *"I need a paid Solana RPC URL to execute
 transactions. (Helius has a free tier at https://www.helius.dev)"*
 
+**Wallet address:** Check `.env` for `WALLET_ADDRESS`. If set, use it for
+read-only operations (wallet balances, account discovery) without needing
+the keypair. The keypair is only required when signing transactions.
+
 **Wallet keypair:** If the user provided a keypair path in their message,
 use it directly. Otherwise check `.env` for `WALLET_KEYPAIR`. If neither,
 ask: *"I need a Solana keypair to sign transactions. Set `WALLET_KEYPAIR`
 in your `.env` to the file path, or tell me where your keypair JSON file
 is."*
 
-Do not fabricate URLs or file paths. Wait for the user to provide real values.
+**P0 account (optional):** Check `.env` for `P0_ACCOUNT`. If set, use it
+directly when loading the account (skip discovery/prompt). If not set,
+follow the account discovery logic in "Create or load account" below.
+
+Do not fabricate URLs, file paths, or account addresses. Wait for the user
+to provide real values.
 
 ### Step 5: Collect swap credentials (only if needed)
 
@@ -279,8 +291,12 @@ withdraw, borrow, repay. Requires a Solana keypair and user authorization.
 - Funded wallet (SOL for tx fees + tokens to deposit)
 - **Paid RPC endpoint** -- check `.env` for `RPC_URL`, otherwise ask user
   (see Agent Workflow step 4)
+- **Wallet address** -- optionally check `.env` for `WALLET_ADDRESS` for
+  read-only operations (see Agent Workflow step 4)
 - **Wallet keypair** -- check `.env` for `WALLET_KEYPAIR`, or use path
   provided by user in their message (see Agent Workflow step 4)
+- **P0 account** -- optionally check `.env` for `P0_ACCOUNT` to skip
+  account selection (see Agent Workflow step 4)
 - **Jupiter API key** -- check `.env` for `JUPITER_API_KEY`, only needed
   for swaps (see Agent Workflow step 5)
 
@@ -345,9 +361,18 @@ Each account has isolated positions and risk — collateral in one account
 is NOT accessible from another.
 
 ```typescript
-const accountAddresses = await client.getAccountAddresses(wallet.publicKey);
+import { PublicKey } from "@solana/web3.js";
 
 let wrappedAccount: MarginfiAccountWrapper;
+
+// If P0_ACCOUNT is set in .env, use it directly
+if (process.env.P0_ACCOUNT) {
+  wrappedAccount = await client.fetchAccount(
+    new PublicKey(process.env.P0_ACCOUNT),
+  );
+} else {
+
+const accountAddresses = await client.getAccountAddresses(wallet.publicKey);
 
 if (accountAddresses.length === 0) {
   // No accounts -- create one
@@ -373,6 +398,8 @@ if (accountAddresses.length === 0) {
   //   Which account should I use?"
   wrappedAccount = await client.fetchAccount(chosenAddress);
 }
+
+} // end P0_ACCOUNT else
 ```
 
 **IMPORTANT — persist the account address.** If you deposited in a previous
