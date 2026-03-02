@@ -32,12 +32,6 @@ export default function Hero() {
 
           {/* Content */}
           <div className="relative flex flex-col items-center space-y-4">
-            {/* Badge */}
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 font-mono text-xs uppercase text-[var(--color-muted-foreground)] backdrop-blur-sm">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-p0-purple animate-pulse" />
-              Powered by Project 0
-            </div>
-
             <div className="space-y-2">
               {/* Heading */}
               <h1 className="gradient-text py-1 text-center text-5xl font-medium leading-tight md:text-6xl lg:text-7xl">
