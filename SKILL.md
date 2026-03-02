@@ -21,8 +21,8 @@ All operations are on-chain, non-custodial, and require no signup.
 
 **Documentation:**
 
-- Protocol overview: https://p0-docs-git-feat-v2-mrgn.vercel.app/
-- TypeScript SDK: https://p0-docs-git-feat-v2-mrgn.vercel.app/typescript-sdk/overview
+- Protocol overview: https://docs.0.xyz/
+- TypeScript SDK: https://docs.0.xyz/typescript-sdk/overview
 
 ### Use Case 1: Yield + Credit
 
@@ -100,22 +100,22 @@ Example: *"Your wallet holds 0.09 bbSOL (~$18) and 0.10 SOL (~$15). bbSOL
 earns 15.2% APY on P0 vs SOL at 4.9%. I recommend depositing your bbSOL
 for the higher yield. Shall I proceed?"*
 
-### Step 4: Collect RPC credential
+### Step 4: Collect credentials
 
-Before executing on-chain operations, the agent needs a paid Solana RPC URL.
+Before executing on-chain operations, the agent needs an RPC URL and a
+wallet keypair.
 
-Check for an existing RPC URL in the environment:
+**RPC URL:** Check `.env` for `RPC_URL`, `SOLANA_RPC_URL`, or `HELIUS_RPC_URL`.
+If not found, ask the user: *"I need a paid Solana RPC URL to execute
+transactions. (Helius has a free tier at https://www.helius.dev)"*
 
-- Look for `RPC_URL`, `SOLANA_RPC_URL`, or `HELIUS_RPC_URL` in the
-  environment variables or `.env` file
-- If found, use it and skip the prompt
+**Wallet keypair:** If the user provided a keypair path in their message,
+use it directly. Otherwise check `.env` for `WALLET_KEYPAIR`. If neither,
+ask: *"I need a Solana keypair to sign transactions. Set `WALLET_KEYPAIR`
+in your `.env` to the file path, or tell me where your keypair JSON file
+is."*
 
-If no RPC URL is found, ask the user:
-
-*"I need a paid Solana RPC URL to execute transactions. Do you have one?
-(Helius has a free tier at https://www.helius.dev)"*
-
-Do not fabricate a URL. Wait for the user to provide a real value.
+Do not fabricate URLs or file paths. Wait for the user to provide real values.
 
 ### Step 5: Collect swap credentials (only if needed)
 
@@ -149,7 +149,7 @@ Use the public HTTP APIs for read-only tasks. No SDK, no wallet, no RPC needed.
 
 ### Banks endpoint
 
-`GET https://p0-agents.vercel.app/api/banks`
+`GET https://ai.0.xyz/api/banks`
 
 Returns every lending pool (bank) with rates, metadata, and pricing. Only
 collateral-tier banks are included (isolated banks are filtered out). The
@@ -157,7 +157,7 @@ response is a lightweight projection (9 fields per bank) with deposit APY
 pre-computed.
 
 ```typescript
-const res = await fetch("https://p0-agents.vercel.app/api/banks");
+const res = await fetch("https://ai.0.xyz/api/banks");
 const banks = await res.json();
 ```
 
@@ -197,14 +197,14 @@ to a bank's `mint` field.
 
 ### Strategies endpoint
 
-`GET https://p0-agents.vercel.app/api/strategies`
+`GET https://ai.0.xyz/api/strategies`
 
 Returns precomputed strategies showing the best deposit/borrow combinations
 with projected APYs. Useful for finding which token to deposit and which to
 borrow for the best spread.
 
 ```typescript
-const res = await fetch("https://p0-agents.vercel.app/api/strategies");
+const res = await fetch("https://ai.0.xyz/api/strategies");
 const strategies = await res.json();
 ```
 
@@ -240,14 +240,14 @@ const best = strategies[0];
 
 ### Wallet endpoint
 
-`GET https://p0-agents.vercel.app/api/wallet/{address}`
+`GET https://ai.0.xyz/api/wallet/{address}`
 
 Returns all token holdings for a Solana wallet with balances and USD values.
 No API key or RPC needed. Tokens are sorted by USD value descending.
 
 ```typescript
 const res = await fetch(
-  `https://p0-agents.vercel.app/api/wallet/${walletAddress}`
+  `https://ai.0.xyz/api/wallet/${walletAddress}`
 );
 const data = await res.json();
 // data.wallet, data.total_usd_value, data.tokens[]
@@ -279,28 +279,37 @@ withdraw, borrow, repay. Requires a Solana keypair and user authorization.
 - Funded wallet (SOL for tx fees + tokens to deposit)
 - **Paid RPC endpoint** -- check `.env` for `RPC_URL`, otherwise ask user
   (see Agent Workflow step 4)
+- **Wallet keypair** -- check `.env` for `WALLET_KEYPAIR`, or use path
+  provided by user in their message (see Agent Workflow step 4)
 - **Jupiter API key** -- check `.env` for `JUPITER_API_KEY`, only needed
   for swaps (see Agent Workflow step 5)
 
 ### Wallet setup
 
-Generate a keypair if one does not exist:
+The agent needs a Solana keypair to sign transactions. Resolve the path
+using this priority:
+
+1. If the user provided a path in their message, use it directly
+2. Check `.env` for `WALLET_KEYPAIR`
+3. If neither, ask: *"I need a Solana keypair to sign transactions. Set
+   `WALLET_KEYPAIR` in your `.env` to the file path, or tell me where
+   your keypair JSON file is."*
+
+```typescript
+import { Keypair } from "@solana/web3.js";
+import fs from "fs";
+
+// keypairPath from user message, or WALLET_KEYPAIR from .env
+const wallet = Keypair.fromSecretKey(
+  Uint8Array.from(JSON.parse(fs.readFileSync(keypairPath, "utf-8")))
+);
+```
+
+To generate a new keypair:
 
 ```bash
 solana-keygen new --outfile ~/.config/solana/id.json
-```
-
-Load the keypair in code:
-
-```typescript
-import { Keypair, Connection } from "@solana/web3.js";
-import fs from "fs";
-
-const wallet = Keypair.fromSecretKey(
-  Uint8Array.from(
-    JSON.parse(fs.readFileSync("~/.config/solana/id.json", "utf-8"))
-  )
-);
+# Then add to .env: WALLET_KEYPAIR=~/.config/solana/id.json
 ```
 
 ### Install
@@ -312,7 +321,7 @@ npm install @0dotxyz/p0-ts-sdk
 `@solana/web3.js` (1.98.4) is bundled as a direct dependency -- no need to
 install it separately.
 
-Full SDK documentation: https://p0-docs-git-feat-v2-mrgn.vercel.app/typescript-sdk/overview
+Full SDK documentation: https://docs.0.xyz/typescript-sdk/overview
 
 ### Initialize client
 
