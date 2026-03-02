@@ -1,6 +1,10 @@
 const navItems = [
   { label: "Features", href: "#features" },
-  { label: "Documentation", href: "https://docs.0.xyz", external: true },
+  {
+    label: "Documentation",
+    href: "https://docs.0.xyz/guides/agent-skill",
+    external: true,
+  },
 ];
 
 export default function Header() {
