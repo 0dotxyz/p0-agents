@@ -10,8 +10,8 @@ async function getRatelimit() {
   const { Redis } = await import("@upstash/redis");
 
   const redis = new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL!,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+    url: process.env.KV_REST_API_URL!,
+    token: process.env.KV_REST_API_TOKEN!,
   });
 
   ratelimitInstance = new Ratelimit({
@@ -29,8 +29,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /* Skip rate limiting when Upstash is not configured (local dev) */
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+  /* Skip rate limiting when Redis is not configured (local dev) */
+  if (!process.env.KV_REST_API_URL || !process.env.KV_REST_API_TOKEN) {
     return NextResponse.next();
   }
 
