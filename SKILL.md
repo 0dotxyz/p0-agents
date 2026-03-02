@@ -1,6 +1,6 @@
 ---
 name: p0-credit
-version: 2.2.0
+version: 2.2.1
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
@@ -63,18 +63,9 @@ follow these steps in order. Do NOT skip ahead to writing code.
 
 ### Step 1: Check wallet balances
 
-Fetch the wallet's token holdings from the P0 API. No credentials needed.
-
-```typescript
-const walletAddress = wallet.publicKey.toBase58();
-const res = await fetch(
-  `https://p0-agents.vercel.app/api/wallet/${walletAddress}`
-);
-const { tokens, total_usd_value } = await res.json();
-```
-
-This returns all tokens with non-zero balances, sorted by USD value
-descending. Use the `address` field to match tokens to P0 banks by `mint`.
+Fetch the wallet's token holdings from the wallet API (see Wallet endpoint
+below). No credentials needed. Use the `address` field from each token to
+match against P0 banks by `mint`.
 
 ### Step 2: Fetch P0 data
 
@@ -245,18 +236,7 @@ const best = strategies[0];
 ```
 
 **Connecting strategies to banks:** Use `primaryBankAddress` and
-`secondaryBankAddress` from a strategy to look up bank details from the
-banks API:
-
-```typescript
-const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
-const banksData = await banksRes.json();
-const banksByAddress = Object.fromEntries(banksData.map((b) => [b.bank_address, b]));
-
-const depositBankInfo = banksByAddress[strategy.primaryBankAddress];
-const borrowBankInfo = banksByAddress[strategy.secondaryBankAddress];
-// depositBankInfo.symbol, depositBankInfo.mint, depositBankInfo.deposit_apy, etc.
-```
+`secondaryBankAddress` to look up bank details from the banks endpoint.
 
 ### Wallet endpoint
 
@@ -273,28 +253,17 @@ const data = await res.json();
 // data.wallet, data.total_usd_value, data.tokens[]
 ```
 
-**Response fields:**
-
-| Field            | Description                                     |
-| ---------------- | ----------------------------------------------- |
-| `wallet`         | Wallet address                                  |
-| `total_usd_value`| Total portfolio value in USD                    |
-| `tokens`         | Array of token holdings (see below)             |
-
-**Fields per token:**
+Returns `{ wallet, total_usd_value, tokens[] }` where each token has:
 
 | Field       | Description                                  |
 | ----------- | -------------------------------------------- |
-| `address`   | Token mint address                           |
+| `address`   | Token mint address (matches bank `mint`)     |
 | `symbol`    | Token symbol (SOL, USDC, bbSOL, ...)         |
 | `name`      | Token name                                   |
-| `decimals`  | Token decimal places (9 for SOL, 6 for USDC) |
+| `decimals`  | Token decimal places                         |
 | `balance`   | Human-readable balance (UI amount)           |
 | `usd_price` | Price per token in USD                       |
 | `usd_value` | Total USD value of this holding              |
-
-**Matching wallet tokens to banks:** Use the `address` field from wallet
-tokens to match against the `mint` field from the banks API.
 
 ---
 
@@ -363,20 +332,19 @@ Reuse the client instance. Do not reinitialize per operation.
 
 A P0 account (MarginfiAccount) is an on-chain PDA that holds positions.
 One wallet can own multiple accounts via different `accountIndex` values.
+Each account has isolated positions and risk — collateral in one account
+is NOT accessible from another.
 
 ```typescript
-// Discover existing accounts
-const accounts = await client.getAccountAddresses(wallet.publicKey);
+const accountAddresses = await client.getAccountAddresses(wallet.publicKey);
 
-let wrappedAccount;
-if (accounts.length > 0) {
-  // Load existing
-  wrappedAccount = await client.fetchAccount(accounts[0]!);
-} else {
-  // Create new (accountIndex defaults to 0)
+let wrappedAccount: MarginfiAccountWrapper;
+
+if (accountAddresses.length === 0) {
+  // No accounts -- create one
   const createTx = await client.createMarginfiAccountTx(
     wallet.publicKey,
-    0, // accountIndex -- use different values to create multiple accounts
+    0, // accountIndex
   );
   createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
   createTx.sign(wallet);
@@ -385,8 +353,24 @@ if (accounts.length > 0) {
 
   const created = await client.getAccountAddresses(wallet.publicKey);
   wrappedAccount = await client.fetchAccount(created[0]!);
+} else if (accountAddresses.length === 1) {
+  // Single account -- use it
+  wrappedAccount = await client.fetchAccount(accountAddresses[0]!);
+} else {
+  // Multiple accounts -- ask the user which to use
+  // Present: "You have N P0 accounts:
+  //   1) 3p16...s4aq
+  //   2) 7xKm...2fNp
+  //   Which account should I use?"
+  wrappedAccount = await client.fetchAccount(chosenAddress);
 }
 ```
+
+**IMPORTANT — persist the account address.** If you deposited in a previous
+step, store `wrappedAccount.address` and reuse it for subsequent operations
+(borrow, withdraw, repay). Do NOT re-discover accounts and blindly pick
+`accountAddresses[0]` — it may be a different account than the one you
+deposited into.
 
 ---
 
@@ -429,15 +413,37 @@ for (const tx of withdrawResult.transactions) {
 
 Returns a versioned transaction bundle (may include oracle crank txs).
 
-```typescript
-// Check capacity first
-const maxBorrow = wrappedAccount.computeMaxBorrowForBank(bankAddress);
+**Pre-borrow checks are mandatory.** Skipping these will result in failed
+transactions (program error 6009) or wasted fees.
 
-const borrowResult = await wrappedAccount.makeBorrowTx(bankAddress, 50);
+```typescript
+// 1. Verify this account has collateral
+if (wrappedAccount.activeBalances.length === 0) {
+  throw new Error("Account has no deposits -- deposit collateral first");
+}
+
+// 2. Check max borrow capacity for this bank
+const maxBorrow = wrappedAccount.computeMaxBorrowForBank(bankAddress);
+if (maxBorrow.isZero()) {
+  throw new Error(
+    "No borrow capacity -- check this is the correct account and it has "
+    + "sufficient collateral. If the wallet has multiple accounts, ask the "
+    + "user which one to use."
+  );
+}
+
+// 3. Clamp to max (leave 5% buffer for price movement)
+const amount = Math.min(desiredAmount, maxBorrow.toNumber() * 0.95);
+
+// 4. Build and send (verify each tx -- see Transaction Verification below)
+const borrowResult = await wrappedAccount.makeBorrowTx(bankAddress, amount);
 for (const tx of borrowResult.transactions) {
   tx.sign([wallet]);
   const sig = await connection.sendRawTransaction(tx.serialize());
-  await connection.confirmTransaction(sig, "confirmed");
+  const confirmation = await connection.confirmTransaction(sig, "confirmed");
+  if (confirmation.value.err) {
+    throw new Error(`Borrow tx failed: ${JSON.stringify(confirmation.value.err)}`);
+  }
 }
 ```
 
@@ -457,6 +463,38 @@ repayTx.sign(wallet);
 const sig = await connection.sendRawTransaction(repayTx.serialize());
 await connection.confirmTransaction(sig, "confirmed");
 ```
+
+### Transaction verification
+
+After sending any transaction, always verify it succeeded on-chain.
+`confirmTransaction` only confirms the tx was included in a block — it does
+NOT check whether the program executed successfully. A transaction can be
+"confirmed" but still fail at the program level (e.g., error 6009:
+"RiskEngine rejected").
+
+```typescript
+const sig = await connection.sendRawTransaction(tx.serialize());
+const confirmation = await connection.confirmTransaction(sig, "confirmed");
+
+// CRITICAL -- check for program-level errors
+if (confirmation.value.err) {
+  throw new Error(
+    `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
+    + `\nhttps://solscan.io/tx/${sig}`
+  );
+}
+
+// Only report success AFTER this check passes
+console.log(`Success: https://solscan.io/tx/${sig}`);
+```
+
+**Never report a transaction as successful without checking
+`confirmation.value.err`.** If `err` is not null, the transaction landed
+on-chain but the program rejected it — the user's funds were not moved.
+
+**Retry policy:** If a transaction fails, do NOT retry more than once.
+Report the failure with the Solscan link and the error message, and let the
+user decide how to proceed.
 
 ---
 
@@ -504,12 +542,9 @@ const swapResponse = await (
       userPublicKey: wallet.publicKey.toBase58(),
       dynamicComputeUnitLimit: true,
       dynamicSlippage: true,
-      prioritizationFeeLamports: {
-        priorityLevelWithMaxLamports: {
-          maxLamports: 1000000,
-          priorityLevel: "veryHigh",
-        },
-      },
+      prioritizationFeeLamports: { priorityLevelWithMaxLamports: {
+        maxLamports: 1000000, priorityLevel: "veryHigh",
+      }},
     }),
   })
 ).json();
@@ -524,9 +559,8 @@ await connection.confirmTransaction(sig, "confirmed");
 console.log(`Swap: https://solscan.io/tx/${sig}`);
 ```
 
-`amount` is in raw integer units (lamports for SOL, smallest unit for SPL
-tokens). For example, 1 USDC = 1000000 (6 decimals), 1 SOL = 1000000000
-(9 decimals). Use the `mint_decimals` field from the banks API to convert.
+`amount` is in raw integer units (lamports for SOL, smallest unit for SPL).
+Use `mint_decimals` from the banks API to convert.
 
 ---
 
@@ -537,39 +571,27 @@ tokens). For example, 1 USDC = 1000000 (6 decimals), 1 SOL = 1000000000
 ```typescript
 import { MarginRequirementType } from "@0dotxyz/p0-ts-sdk";
 
-// Fetch bank metadata for human-readable output
-const banksRes = await fetch("https://p0-agents.vercel.app/api/banks");
-const banksData = await banksRes.json();
-const bankInfoByAddress = Object.fromEntries(
-  banksData.map((b) => [b.bank_address, b])
-);
-
 // List all active positions
 for (const balance of wrappedAccount.activeBalances) {
-  const bankAddr = balance.bankPk.toBase58();
   const bank = client.getBank(balance.bankPk);
   if (!bank) continue;
+  const bankAddr = balance.bankPk.toBase58();
   const multiplier = client.assetShareValueMultiplierByBank.get(bankAddr);
   const qty = balance.computeQuantityUi(bank, multiplier);
-  const info = bankInfoByAddress[bankAddr];
-  const label = info ? `${info.symbol} (${info.venue})` : bankAddr;
-  if (qty.assets.gt(0)) console.log(`Deposit: ${qty.assets.toFixed(4)} ${label}`);
-  if (qty.liabilities.gt(0)) console.log(`Borrow:  ${qty.liabilities.toFixed(4)} ${label}`);
+  // Optionally fetch bank metadata from banks API for symbol/venue labels
+  if (qty.assets.gt(0)) console.log(`Deposit: ${qty.assets.toFixed(4)} ${bankAddr}`);
+  if (qty.liabilities.gt(0)) console.log(`Borrow:  ${qty.liabilities.toFixed(4)} ${bankAddr}`);
 }
 
 // Account-level metrics
-const accountValue = wrappedAccount.computeAccountValue();
 const health = wrappedAccount.computeHealthComponentsFromCache(
   MarginRequirementType.Maintenance,
 );
 const healthFactor = health.assets.dividedBy(health.liabilities).toNumber();
-const freeCollateral = wrappedAccount.computeFreeCollateralFromCache();
-const netApy = wrappedAccount.computeNetApy();
-
-console.log(`Account value: $${accountValue.toFixed(2)}`);
+console.log(`Account value: $${wrappedAccount.computeAccountValue().toFixed(2)}`);
 console.log(`Health factor: ${healthFactor.toFixed(2)}`);
-console.log(`Free collateral: $${freeCollateral.toFixed(2)}`);
-console.log(`Net APY: ${(netApy * 100).toFixed(2)}%`);
+console.log(`Free collateral: $${wrappedAccount.computeFreeCollateralFromCache().toFixed(2)}`);
+console.log(`Net APY: ${(wrappedAccount.computeNetApy() * 100).toFixed(2)}%`);
 ```
 
 ### Health factor reference
@@ -592,4 +614,5 @@ console.log(`Net APY: ${(netApy * 100).toFixed(2)}%`);
 | `Simulation failed`            | Transaction would fail on-chain        | Check logs -- often stale oracle or insufficient balance |
 | `Transaction expired`          | Blockhash expired before confirmation  | Retry with fresh blockhash                              |
 | `Account not found`            | P0 account address does not exist      | Verify address or create a new account                  |
+| `Program error 6009`           | RiskEngine rejected (bad health/stale oracles) | Verify correct account has collateral; check health     |
 | `429 Too Many Requests`        | RPC rate limited                       | Use a paid RPC provider                                 |
