@@ -49,7 +49,7 @@ export default function Hero() {
               <div className="group relative flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-5 py-4 backdrop-blur-sm transition-all hover:border-white/20 hover:bg-white/[0.06]">
                 <span className="text-p0-purple font-mono text-sm">$</span>
                 <code className="flex-1 font-mono text text-white/90">
-                  npx skills add 0dotxyz/skill
+                  npx skills add 0dotxyz/p0-agents
                 </code>
                 <button
                   onClick={handleCopy}
