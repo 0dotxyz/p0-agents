@@ -8,7 +8,7 @@ const SUPABASE_BASE =
 const videos = [
   { label: "Explore Strategies", src: `${SUPABASE_BASE}/agents-1.mp4` },
   { label: "Earning Yield", src: `${SUPABASE_BASE}/agents-2.mp4` },
-  { label: "Borrowing", src: `${SUPABASE_BASE}/agents-3.mp4` },
+  { label: "Borrowing Funds", src: `${SUPABASE_BASE}/agents-3.mp4` },
 ];
 
 export default function VideoDemo() {
