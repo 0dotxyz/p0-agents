@@ -7,18 +7,16 @@ const SUPABASE_BASE =
 
 const videos = [
   { label: "Explore Strategies", src: `${SUPABASE_BASE}/agents-1.mp4` },
-  { label: "Earning Yield", src: `${SUPABASE_BASE}/agents-1.mp4` },
-  { label: "Borrowing", src: `${SUPABASE_BASE}/agents-1.mp4` },
+  { label: "Earning Yield", src: `${SUPABASE_BASE}/agents-2.mp4` },
+  { label: "Borrowing", src: `${SUPABASE_BASE}/agents-3.mp4` },
 ];
 
 export default function VideoDemo() {
   const [active, setActive] = useState(0);
   const videoRefs = useRef<(HTMLVideoElement | null)[]>([]);
 
-  const handleTabClick = useCallback(
+  const switchTo = useCallback(
     (index: number) => {
-      if (index === active) return;
-
       const outgoing = videoRefs.current[active];
       if (outgoing) {
         outgoing.pause();
@@ -36,15 +34,30 @@ export default function VideoDemo() {
     [active],
   );
 
+  const handleTabClick = useCallback(
+    (index: number) => {
+      if (index === active) return;
+      switchTo(index);
+    },
+    [active, switchTo],
+  );
+
+  const handleEnded = useCallback(
+    (index: number) => {
+      switchTo((index + 1) % videos.length);
+    },
+    [switchTo],
+  );
+
   return (
-    <section className="relative mx-auto max-w-5xl px-4 py-4">
+    <section className="relative mx-auto max-w-4xl px-4 py-4">
       {/* Tab buttons */}
       <div className="mb-4 flex items-center justify-center gap-1">
         {videos.map((video, i) => (
           <button
             key={video.label}
             onClick={() => handleTabClick(i)}
-            className={`cursor-pointer rounded-lg px-4 py-2 font-mono text-xs uppercase tracking-wider transition-colors duration-200 ${
+            className={`w-44 cursor-pointer rounded-lg py-2 font-mono text-xs uppercase tracking-wider transition-colors duration-200 ${
               i === active
                 ? "bg-white/[0.08] text-white"
                 : "text-[var(--color-muted-foreground)] hover:text-white/60"
@@ -64,10 +77,10 @@ export default function VideoDemo() {
               videoRefs.current[i] = el;
             }}
             className={`w-full rounded-xl ${i === active ? "" : "hidden"}`}
-            loop
             muted
             playsInline
             autoPlay={i === 0}
+            onEnded={() => handleEnded(i)}
           >
             <source src={video.src} type="video/mp4" />
           </video>

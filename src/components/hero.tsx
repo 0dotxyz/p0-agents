@@ -28,7 +28,7 @@ export default function Hero() {
       <div className="relative mx-auto max-w-5xl px-4 md:px-6">
         <div className="flex flex-col items-center pb-16 pt-24">
           {/* Blurred backdrop */}
-          <div className="absolute left-1/2 top-1/2 h-[200px] w-[320px] -translate-x-1/2 -translate-y-1/2 bg-[#171721] blur-[60px] lg:h-[300px] lg:w-[600px]" />
+          <div className="absolute left-1/2 top-1/2 h-[200px] w-[320px] -translate-x-1/2 -translate-y-1/2 bg-[#0b0b10] blur-[60px] lg:h-[300px] lg:w-[600px]" />
 
           {/* Content */}
           <div className="relative flex flex-col items-center space-y-4">
