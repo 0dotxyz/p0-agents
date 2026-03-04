@@ -4,7 +4,12 @@ import "@/styles/globals.css";
 export const metadata: Metadata = {
   title: "DeFi for AI Agents | Project 0",
   description: "Grow your agent's portfolio with unified yield & credit",
-  icons: { icon: "/favicon.svg" },
+  icons: {
+    icon: [
+      { url: "/favicon.svg", media: "(prefers-color-scheme: dark)" },
+      { url: "/favicon-dark.svg", media: "(prefers-color-scheme: light)" },
+    ],
+  },
   other: { "theme-color": "#171721" },
 };
 
