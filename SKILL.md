@@ -1,13 +1,26 @@
 ---
 name: project0
-version: 2.2.1
+version: 2.2.6
 description: >
   Permissionless DeFi yield and credit on Solana via the Project 0 (P0) protocol.
   Deposit funds to earn yield across Solana's highest-yielding venues.
   Borrow stablecoins against deposited collateral instead of selling crypto.
   Execute advanced yield strategies via rate arbitrage and looping.
   All operations are on-chain and permissionless -- no accounts, no approval process.
+  Note: This skill requires a wallet keypair to sign transactions. Use a dedicated
+  wallet with limited funds -- never expose your main private key. The agent will
+  always ask for confirmation before signing. Read-only operations need no keypair.
 homepage: https://0.xyz
+metadata:
+  openclaw:
+    requires:
+      env:
+        - RPC_URL
+        - WALLET_KEYPAIR
+        - WALLET_ADDRESS
+        - P0_ACCOUNT
+        - JUPITER_API_KEY
+    primaryEnv: RPC_URL
 ---
 
 # Project 0 Skill
@@ -99,9 +112,9 @@ tokens -- not just the single highest-yield one.
 
 **Present the plan to the user with specific numbers before executing.**
 
-Example: *"Your wallet holds 0.09 bbSOL (~$18) and 0.10 SOL (~$15). bbSOL
+Example: _"Your wallet holds 0.09 bbSOL (~$18) and 0.10 SOL (~$15). bbSOL
 earns 15.2% APY on P0 vs SOL at 4.9%. I recommend depositing your bbSOL
-for the higher yield. Shall I proceed?"*
+for the higher yield. Shall I proceed?"_
 
 ### Step 4: Collect credentials
 
@@ -109,8 +122,8 @@ Before executing on-chain operations, the agent needs an RPC URL and a
 wallet keypair.
 
 **RPC URL:** Check `.env` for `RPC_URL`, `SOLANA_RPC_URL`, or `HELIUS_RPC_URL`.
-If not found, ask the user: *"I need a paid Solana RPC URL to execute
-transactions. (Helius has a free tier at https://www.helius.dev)"*
+If not found, ask the user: _"I need a paid Solana RPC URL to execute
+transactions. (Helius has a free tier at https://www.helius.dev)"_
 
 **Wallet address:** Check `.env` for `WALLET_ADDRESS`. If set, use it for
 read-only operations (wallet balances, account discovery) without needing
@@ -118,9 +131,9 @@ the keypair. The keypair is only required when signing transactions.
 
 **Wallet keypair:** If the user provided a keypair path in their message,
 use it directly. Otherwise check `.env` for `WALLET_KEYPAIR`. If neither,
-ask: *"I need a Solana keypair to sign transactions. Set `WALLET_KEYPAIR`
+ask: _"I need a Solana keypair to sign transactions. Set `WALLET_KEYPAIR`
 in your `.env` to the file path, or tell me where your keypair JSON file
-is."*
+is."_
 
 **P0 account (optional):** Check `.env` for `P0_ACCOUNT`. If set, use it
 directly when loading the account (skip discovery/prompt). If not set,
@@ -142,8 +155,8 @@ Check for an existing key in the environment:
 
 If no key is found, ask the user:
 
-*"I need a Jupiter API key for the token swap. Get a free one at
-https://portal.jup.ag (60 req/min)"*
+_"I need a Jupiter API key for the token swap. Get a free one at
+https://portal.jup.ag (60 req/min)"_
 
 If no swap is needed, skip this step entirely.
 
@@ -175,17 +188,17 @@ const banks = await res.json();
 
 **Fields per bank:**
 
-| Field           | Description                                              |
-| --------------- | -------------------------------------------------------- |
-| `bank_address`  | On-chain bank address (use with SDK `client.getBank()`)  |
-| `symbol`        | Token symbol (SOL, USDC, JitoSOL, ...)                   |
-| `mint`          | Token mint address                                       |
-| `mint_decimals` | Token decimal places (9 for SOL, 6 for USDC)             |
-| `venue`         | Lending venue (P0, Kamino, Drift)                        |
+| Field           | Description                                                                   |
+| --------------- | ----------------------------------------------------------------------------- |
+| `bank_address`  | On-chain bank address (use with SDK `client.getBank()`)                       |
+| `symbol`        | Token symbol (SOL, USDC, JitoSOL, ...)                                        |
+| `mint`          | Token mint address                                                            |
+| `mint_decimals` | Token decimal places (9 for SOL, 6 for USDC)                                  |
+| `venue`         | Lending venue (P0, Kamino, Drift)                                             |
 | `deposit_apy`   | Effective deposit APY as percentage (pre-computed, includes underlying yield) |
-| `borrow_apy`    | Borrow APY as percentage                                 |
-| `usd_price`     | Oracle price in USD                                      |
-| `token_program` | Token program (TOKEN_PROGRAM_ID or TOKEN_2022)           |
+| `borrow_apy`    | Borrow APY as percentage                                                      |
+| `usd_price`     | Oracle price in USD                                                           |
+| `token_program` | Token program (TOKEN_PROGRAM_ID or TOKEN_2022)                                |
 
 The `deposit_apy` field already includes underlying token yield (e.g. LST staking
 rates). No manual computation needed -- just sort by `deposit_apy` descending.
@@ -222,14 +235,14 @@ const strategies = await res.json();
 
 **Fields per strategy:**
 
-| Field                  | Description                                         |
-| ---------------------- | --------------------------------------------------- |
+| Field                  | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
 | `heading`              | Human-readable name (e.g. "bbSOL/SOL Rate Arbitrage") |
-| `primaryBankAddress`   | Bank to deposit into                                |
-| `secondaryBankAddress` | Bank to borrow from                                 |
-| `spread`               | Rate spread between deposit and borrow              |
-| `leverage`             | Leverage multiplier                                 |
-| `apy`                  | Projected APY (decimal, e.g. 0.085 = 8.5%)          |
+| `primaryBankAddress`   | Bank to deposit into                                  |
+| `secondaryBankAddress` | Bank to borrow from                                   |
+| `spread`               | Rate spread between deposit and borrow                |
+| `leverage`             | Leverage multiplier                                   |
+| `apy`                  | Projected APY (decimal, e.g. 0.085 = 8.5%)            |
 
 The endpoint returns the top strategies sorted by APY descending. The `heading`
 field describes the strategy type (e.g. "Rate Arbitrage", "Loop", etc.).
@@ -258,24 +271,22 @@ Returns all token holdings for a Solana wallet with balances and USD values.
 No API key or RPC needed. Tokens are sorted by USD value descending.
 
 ```typescript
-const res = await fetch(
-  `https://ai.0.xyz/api/wallet/${walletAddress}`
-);
+const res = await fetch(`https://ai.0.xyz/api/wallet/${walletAddress}`);
 const data = await res.json();
 // data.wallet, data.total_usd_value, data.tokens[]
 ```
 
 Returns `{ wallet, total_usd_value, tokens[] }` where each token has:
 
-| Field       | Description                                  |
-| ----------- | -------------------------------------------- |
-| `address`   | Token mint address (matches bank `mint`)     |
-| `symbol`    | Token symbol (SOL, USDC, bbSOL, ...)         |
-| `name`      | Token name                                   |
-| `decimals`  | Token decimal places                         |
-| `balance`   | Human-readable balance (UI amount)           |
-| `usd_price` | Price per token in USD                       |
-| `usd_value` | Total USD value of this holding              |
+| Field       | Description                              |
+| ----------- | ---------------------------------------- |
+| `address`   | Token mint address (matches bank `mint`) |
+| `symbol`    | Token symbol (SOL, USDC, bbSOL, ...)     |
+| `name`      | Token name                               |
+| `decimals`  | Token decimal places                     |
+| `balance`   | Human-readable balance (UI amount)       |
+| `usd_price` | Price per token in USD                   |
+| `usd_value` | Total USD value of this holding          |
 
 ---
 
@@ -307,9 +318,9 @@ using this priority:
 
 1. If the user provided a path in their message, use it directly
 2. Check `.env` for `WALLET_KEYPAIR`
-3. If neither, ask: *"I need a Solana keypair to sign transactions. Set
+3. If neither, ask: _"I need a Solana keypair to sign transactions. Set
    `WALLET_KEYPAIR` in your `.env` to the file path, or tell me where
-   your keypair JSON file is."*
+   your keypair JSON file is."_
 
 ```typescript
 import { Keypair } from "@solana/web3.js";
@@ -317,7 +328,7 @@ import fs from "fs";
 
 // keypairPath from user message, or WALLET_KEYPAIR from .env
 const wallet = Keypair.fromSecretKey(
-  Uint8Array.from(JSON.parse(fs.readFileSync(keypairPath, "utf-8")))
+  Uint8Array.from(JSON.parse(fs.readFileSync(keypairPath, "utf-8"))),
 );
 ```
 
@@ -371,34 +382,34 @@ if (process.env.P0_ACCOUNT) {
     new PublicKey(process.env.P0_ACCOUNT),
   );
 } else {
+  const accountAddresses = await client.getAccountAddresses(wallet.publicKey);
 
-const accountAddresses = await client.getAccountAddresses(wallet.publicKey);
+  if (accountAddresses.length === 0) {
+    // No accounts -- create one
+    const createTx = await client.createMarginfiAccountTx(
+      wallet.publicKey,
+      0, // accountIndex
+    );
+    createTx.recentBlockhash = (
+      await connection.getLatestBlockhash()
+    ).blockhash;
+    createTx.sign(wallet);
+    const createSig = await connection.sendRawTransaction(createTx.serialize());
+    await connection.confirmTransaction(createSig, "confirmed");
 
-if (accountAddresses.length === 0) {
-  // No accounts -- create one
-  const createTx = await client.createMarginfiAccountTx(
-    wallet.publicKey,
-    0, // accountIndex
-  );
-  createTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-  createTx.sign(wallet);
-  const createSig = await connection.sendRawTransaction(createTx.serialize());
-  await connection.confirmTransaction(createSig, "confirmed");
-
-  const created = await client.getAccountAddresses(wallet.publicKey);
-  wrappedAccount = await client.fetchAccount(created[0]!);
-} else if (accountAddresses.length === 1) {
-  // Single account -- use it
-  wrappedAccount = await client.fetchAccount(accountAddresses[0]!);
-} else {
-  // Multiple accounts -- ask the user which to use
-  // Present: "You have N P0 accounts:
-  //   1) 3p16...s4aq
-  //   2) 7xKm...2fNp
-  //   Which account should I use?"
-  wrappedAccount = await client.fetchAccount(chosenAddress);
-}
-
+    const created = await client.getAccountAddresses(wallet.publicKey);
+    wrappedAccount = await client.fetchAccount(created[0]!);
+  } else if (accountAddresses.length === 1) {
+    // Single account -- use it
+    wrappedAccount = await client.fetchAccount(accountAddresses[0]!);
+  } else {
+    // Multiple accounts -- ask the user which to use
+    // Present: "You have N P0 accounts:
+    //   1) 3p16...s4aq
+    //   2) 7xKm...2fNp
+    //   Which account should I use?"
+    wrappedAccount = await client.fetchAccount(chosenAddress);
+  }
 } // end P0_ACCOUNT else
 ```
 
@@ -462,9 +473,9 @@ if (wrappedAccount.activeBalances.length === 0) {
 const maxBorrow = wrappedAccount.computeMaxBorrowForBank(bankAddress);
 if (maxBorrow.isZero()) {
   throw new Error(
-    "No borrow capacity -- check this is the correct account and it has "
-    + "sufficient collateral. If the wallet has multiple accounts, ask the "
-    + "user which one to use."
+    "No borrow capacity -- check this is the correct account and it has " +
+      "sufficient collateral. If the wallet has multiple accounts, ask the " +
+      "user which one to use.",
   );
 }
 
@@ -478,7 +489,9 @@ for (const tx of borrowResult.transactions) {
   const sig = await connection.sendRawTransaction(tx.serialize());
   const confirmation = await connection.confirmTransaction(sig, "confirmed");
   if (confirmation.value.err) {
-    throw new Error(`Borrow tx failed: ${JSON.stringify(confirmation.value.err)}`);
+    throw new Error(
+      `Borrow tx failed: ${JSON.stringify(confirmation.value.err)}`,
+    );
   }
 }
 ```
@@ -515,8 +528,8 @@ const confirmation = await connection.confirmTransaction(sig, "confirmed");
 // CRITICAL -- check for program-level errors
 if (confirmation.value.err) {
   throw new Error(
-    `Transaction failed: ${JSON.stringify(confirmation.value.err)}`
-    + `\nhttps://solscan.io/tx/${sig}`
+    `Transaction failed: ${JSON.stringify(confirmation.value.err)}` +
+      `\nhttps://solscan.io/tx/${sig}`,
   );
 }
 
@@ -540,8 +553,8 @@ If the wallet holds a different token than what a strategy requires (e.g.
 holds SOL but the best yield is for bbSOL), swap first using the Jupiter API.
 
 **Jupiter requires an API key.** Check `.env` for `JUPITER_API_KEY` or
-`JUP_API_KEY`. If not found, ask the user: *"I need a Jupiter API key for
-the token swap. Get a free one at https://portal.jup.ag (60 req/min)"*
+`JUP_API_KEY`. If not found, ask the user: _"I need a Jupiter API key for
+the token swap. Get a free one at https://portal.jup.ag (60 req/min)"_
 
 ### Get a quote and execute swap
 
@@ -549,7 +562,7 @@ the token swap. Get a free one at https://portal.jup.ag (60 req/min)"*
 import { VersionedTransaction } from "@solana/web3.js";
 
 // JUP_API_KEY from .env or provided by user
-const inputMint = "So11111111111111111111111111111111111111112";   // SOL
+const inputMint = "So11111111111111111111111111111111111111112"; // SOL
 const outputMint = "Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B"; // bbSOL
 const amount = 100000000; // raw integer units (0.1 SOL = 100000000 lamports)
 
@@ -557,10 +570,10 @@ const amount = 100000000; // raw integer units (0.1 SOL = 100000000 lamports)
 const quoteResponse = await (
   await fetch(
     `https://api.jup.ag/swap/v1/quote?inputMint=${inputMint}` +
-    `&outputMint=${outputMint}` +
-    `&amount=${amount}` +
-    `&slippageBps=50` +
-    `&restrictIntermediateTokens=true`,
+      `&outputMint=${outputMint}` +
+      `&amount=${amount}` +
+      `&slippageBps=50` +
+      `&restrictIntermediateTokens=true`,
     { headers: { "x-api-key": JUP_API_KEY } },
   )
 ).json();
@@ -578,16 +591,19 @@ const swapResponse = await (
       userPublicKey: wallet.publicKey.toBase58(),
       dynamicComputeUnitLimit: true,
       dynamicSlippage: true,
-      prioritizationFeeLamports: { priorityLevelWithMaxLamports: {
-        maxLamports: 1000000, priorityLevel: "veryHigh",
-      }},
+      prioritizationFeeLamports: {
+        priorityLevelWithMaxLamports: {
+          maxLamports: 1000000,
+          priorityLevel: "veryHigh",
+        },
+      },
     }),
   })
 ).json();
 
 // 3. Sign and send
 const swapTx = VersionedTransaction.deserialize(
-  Buffer.from(swapResponse.swapTransaction, "base64")
+  Buffer.from(swapResponse.swapTransaction, "base64"),
 );
 swapTx.sign([wallet]);
 const sig = await connection.sendRawTransaction(swapTx.serialize());
@@ -615,8 +631,10 @@ for (const balance of wrappedAccount.activeBalances) {
   const multiplier = client.assetShareValueMultiplierByBank.get(bankAddr);
   const qty = balance.computeQuantityUi(bank, multiplier);
   // Optionally fetch bank metadata from banks API for symbol/venue labels
-  if (qty.assets.gt(0)) console.log(`Deposit: ${qty.assets.toFixed(4)} ${bankAddr}`);
-  if (qty.liabilities.gt(0)) console.log(`Borrow:  ${qty.liabilities.toFixed(4)} ${bankAddr}`);
+  if (qty.assets.gt(0))
+    console.log(`Deposit: ${qty.assets.toFixed(4)} ${bankAddr}`);
+  if (qty.liabilities.gt(0))
+    console.log(`Borrow:  ${qty.liabilities.toFixed(4)} ${bankAddr}`);
 }
 
 // Account-level metrics
@@ -624,31 +642,35 @@ const health = wrappedAccount.computeHealthComponentsFromCache(
   MarginRequirementType.Maintenance,
 );
 const healthFactor = health.assets.dividedBy(health.liabilities).toNumber();
-console.log(`Account value: $${wrappedAccount.computeAccountValue().toFixed(2)}`);
+console.log(
+  `Account value: $${wrappedAccount.computeAccountValue().toFixed(2)}`,
+);
 console.log(`Health factor: ${healthFactor.toFixed(2)}`);
-console.log(`Free collateral: $${wrappedAccount.computeFreeCollateralFromCache().toFixed(2)}`);
+console.log(
+  `Free collateral: $${wrappedAccount.computeFreeCollateralFromCache().toFixed(2)}`,
+);
 console.log(`Net APY: ${(wrappedAccount.computeNetApy() * 100).toFixed(2)}%`);
 ```
 
 ### Health factor reference
 
-| Health Factor | Status                                         |
-| ------------- | ---------------------------------------------- |
-| > 2.0         | Healthy                                        |
-| 1.1 - 2.0    | Monitor closely                                |
-| 1.0 - 1.1    | Danger -- repay or deposit more                |
-| < 1.0         | Liquidatable                                   |
+| Health Factor | Status                          |
+| ------------- | ------------------------------- |
+| > 2.0         | Healthy                         |
+| 1.1 - 2.0     | Monitor closely                 |
+| 1.0 - 1.1     | Danger -- repay or deposit more |
+| < 1.0         | Liquidatable                    |
 
 ---
 
 ## Error Reference
 
-| Error                          | Cause                                  | Resolution                                              |
-| ------------------------------ | -------------------------------------- | ------------------------------------------------------- |
-| `Bank not found`               | No bank for the given address          | Verify bank address from banks API                      |
-| `Insufficient free collateral` | Not enough collateral to borrow        | Deposit more or borrow less                             |
-| `Simulation failed`            | Transaction would fail on-chain        | Check logs -- often stale oracle or insufficient balance |
-| `Transaction expired`          | Blockhash expired before confirmation  | Retry with fresh blockhash                              |
-| `Account not found`            | P0 account address does not exist      | Verify address or create a new account                  |
-| `Program error 6009`           | RiskEngine rejected (bad health/stale oracles) | Verify correct account has collateral; check health     |
-| `429 Too Many Requests`        | RPC rate limited                       | Use a paid RPC provider                                 |
+| Error                          | Cause                                          | Resolution                                               |
+| ------------------------------ | ---------------------------------------------- | -------------------------------------------------------- |
+| `Bank not found`               | No bank for the given address                  | Verify bank address from banks API                       |
+| `Insufficient free collateral` | Not enough collateral to borrow                | Deposit more or borrow less                              |
+| `Simulation failed`            | Transaction would fail on-chain                | Check logs -- often stale oracle or insufficient balance |
+| `Transaction expired`          | Blockhash expired before confirmation          | Retry with fresh blockhash                               |
+| `Account not found`            | P0 account address does not exist              | Verify address or create a new account                   |
+| `Program error 6009`           | RiskEngine rejected (bad health/stale oracles) | Verify correct account has collateral; check health      |
+| `429 Too Many Requests`        | RPC rate limited                               | Use a paid RPC provider                                  |
