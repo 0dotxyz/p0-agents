@@ -15,7 +15,6 @@ p0-agents/
 │   │       ├── banks/      # Lightweight bank proxy
 │   │       └── strategies/ # Strategy proxy
 │   ├── components/         # React components (Header, Hero, Features, etc.)
-│   ├── middleware.ts        # Rate limiting (Upstash)
 │   └── styles/globals.css  # Tailwind v4 theme + custom styles
 └── public/                 # Static assets (fonts, images, lottie)
 ```
@@ -45,7 +44,7 @@ npx skills add 0dotxyz/skill
 | `GET /api/banks`      | Proxies upstream bank data, strips to 9 fields, pre-computes `deposit_apy` |
 | `GET /api/strategies` | Returns pre-computed rate-arb and loop strategies                          |
 
-Both endpoints are cached (2 min) and rate-limited (60 req/min per IP).
+Both endpoints are cached (2 min) and rate-limited via Vercel Firewall.
 
 ## Getting Started
 
