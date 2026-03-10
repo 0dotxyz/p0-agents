@@ -6,7 +6,7 @@ const links = [
   { label: "Audits", href: "https://www.0.xyz/audits" },
   {
     label: "Media Kit",
-    href: "https://drive.google.com/drive/folders/1uoGoNXB-GjVLD7JoASMT_tetXZt57pp7",
+    href: "https://www.0.xyz/brand-kit",
   },
 ];
 
