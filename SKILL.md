@@ -211,9 +211,11 @@ the user `simulation.post_health`, every `warnings` entry, and
 debt before and after). Flash-loan builds also return `swap`: show both
 tokens, the amounts and `swap.worst_case_loss_pct`.
 
-The blockhash expires about 60 seconds after the build. Get the user's
-approval of the plan before building, then sign and submit straight away. If
-it expires, build again.
+The blockhash is valid for ~150 blocks, about **30 seconds** at current
+Solana block times (measured 2026-10-23), so the clock starts at the build.
+Get the user's approval of the plan before building, then sign every
+transaction in parallel and submit straight away, with nothing in between.
+If it expires (`TX_EXPIRED`), build again.
 
 ### 5. Sign and submit
 
@@ -223,7 +225,8 @@ unless `submit_token` is null.
 
 #### Signer A: PayBox (no keypair, no code)
 
-1. For each entry in `transactions`, in order, call `request_wallet_sign`:
+1. For each entry in `transactions`, call `request_wallet_sign` (issue them
+   all at once, in parallel; keep the request ids in array order):
 
    ```json
    {
@@ -236,8 +239,9 @@ unless `submit_token` is null.
    `request_id` until it reaches `success`, `denied` or `error`. Never call
    `request_wallet_sign` again for the same transaction. If the signing window
    is missing or stuck, use `reopen_signing_window` with that `request_id`.
-3. Take the signed transaction (base64) from each `success` result. If the
-   user denies any one, stop: send nothing and tell the user.
+3. Take the signed transaction from each `success` result:
+   `output.value.signedTransactionBase64`. If the user denies any one, stop:
+   send nothing and tell the user.
 4. Call `p0_submit`:
 
    ```json
@@ -245,8 +249,10 @@ unless `submit_token` is null.
    ```
 
 Each transaction is a separate approval, and all of them must happen within
-the ~60-second window. Tell the user how many approvals to expect before
-building.
+the ~30-second window, so poll every `get_request` in parallel too. Tell the
+user how many approvals to expect before building. The first signature on a
+new PayBox connection asks the user to connect a signing key; do that once
+before building (e.g. sign a harmless message), not inside the window.
 
 #### Signer B: any other wallet that returns signed transactions
 
