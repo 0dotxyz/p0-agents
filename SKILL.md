@@ -29,7 +29,9 @@ and read the docs: `p0_search_docs`, `p0_get_doc`).
 2. Read with the MCP tools (or `GET /v1/*`) to plan.
 3. Present a concrete plan with numbers. Wait for the user's approval before
    any state-changing action.
-4. Build the transaction(s) with a builder tool (or `POST /v1/tx/*`).
+4. Build the transaction(s) with a builder tool (or `POST /v1/tx/*`). **One
+   action at a time:** build, sign and submit one action, confirm it landed,
+   then build the next. A wallet with no account creates one first.
 5. Sign every transaction with the user's wallet, exactly as returned, right
    away, then send them with `p0_submit` (or yourself, per the `submit` field).
 6. Re-read positions and report signatures as `https://solscan.io/tx/<signature>`.
@@ -60,7 +62,7 @@ another wallet MCP that can sign Solana transactions).
 | `p0_get_activity` | `GET /v1/activity/{authority}` | Recent actions |
 | `p0_search_docs` / `p0_get_doc` | | Search and read the protocol docs |
 | `p0_create_account` | `POST /v1/tx/create-account` | New marginfi account |
-| `p0_deposit` / `p0_withdraw` | `POST /v1/tx/deposit` / `withdraw` | Deposit (auto-creates an account for first-timers) / withdraw |
+| `p0_deposit` / `p0_withdraw` | `POST /v1/tx/deposit` / `withdraw` | Deposit into an existing account / withdraw |
 | `p0_borrow` / `p0_repay` | `POST /v1/tx/borrow` / `repay` | Borrow (capped by guardrails) / repay |
 | `p0_loop` | `POST /v1/tx/loop` | Open or increase a leveraged position in one flash-loan tx |
 | `p0_close_position` | `POST /v1/tx/close-position` | Unwind a position: repay debt with collateral in one flash-loan tx |
@@ -147,6 +149,16 @@ premium) and the expected health after the action. Wait for approval.
 
 ### 4. Build
 
+**One action per build.** Every build is a single action; finish it (sign,
+submit, confirmed) before building the next, so each signing round fits the
+~30-second window.
+
+**First time:** if `p0_get_positions` shows no account, create one first with
+`p0_create_account { "authority": "<wallet>" }`, sign and submit it, and save
+the returned `account`. Deposits and loops never create accounts (they return
+`ACCOUNT_NOT_FOUND`). Each `p0_create_account` call creates a new account, so
+only call it when you want one.
+
 Single leg (deposit / borrow / withdraw / repay):
 
 ```json
@@ -162,7 +174,7 @@ Strategy (leveraged loop):
 ```json
 {
   "authority": "<wallet>",
-  "create_new_account": true,
+  "account": "<account>",
   "deposit_bank": "<strategy.supply.bank>",
   "borrow_bank": "<strategy.borrow.bank>",
   "amount": 0.5,
@@ -170,9 +182,11 @@ Strategy (leveraged loop):
 }
 ```
 
-`amount` is principal already in the wallet, in deposit-token units.
-`create_new_account: true` isolates the position in a fresh account (what the
-app does); pass `account` instead to add to an existing one. Unwind with
+`amount` is principal already in the wallet, in deposit-token units. To
+isolate a strategy in its own account (what the app does), create a new
+account with `p0_create_account` first and pass it as `account`; a loop into
+an account with no positions uses the most compact route. Pass an existing
+`account` to add to it instead. Unwind with
 `p0_close_position` `{ authority, account, deposit_bank, borrow_bank,
 repay_all: true }` (or `amount` for a partial repay; max 250,000 USD of debt
 per call).
@@ -351,7 +365,7 @@ The message is prescriptive; follow it.
 | Code | What to do |
 | --- | --- |
 | `ACCOUNT_AMBIGUOUS` | Pass `account` from `details.accounts` |
-| `ACCOUNT_NOT_FOUND` | Deposit first (auto-creates) or `p0_create_account` |
+| `ACCOUNT_NOT_FOUND` | Create one with `p0_create_account`, sign and submit it, then retry with that `account` |
 | `BANK_NOT_FOUND` | Use a bank `address` from `p0_get_banks`; single-leg actions need a `P0` bank |
 | `INVALID_ADDRESS` | Fix the input named in the message (also: opposite-side position, isolated-tier borrow rules) |
 | `INSUFFICIENT_COLLATERAL` | Amount above the position or `max_withdraw`, or the SOL gas reserve; check positions |
