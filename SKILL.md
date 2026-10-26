@@ -1,6 +1,6 @@
 ---
 name: project0
-description: Use for Project 0 (P0), the DeFi prime broker on Solana. Yield discovery, deposits, borrows, repayments, withdrawals, leveraged loops (strategies), position swaps, and account health, through the hosted MCP server at ai.0.xyz or its REST API. Transactions are returned unsigned; the user's wallet signs (PayBox, a browser wallet such as Phantom via a signing link, another signing wallet, or a local keypair) and p0_submit can send them.
+description: Use for Project 0 (P0), the DeFi prime broker on Solana. Yield discovery, deposits, borrows, repayments, withdrawals, leveraged loops (strategies), position swaps, wallet token swaps, and account health, through the hosted MCP server at ai.0.xyz or its REST API. Transactions are returned unsigned; the user's wallet signs (PayBox, their own wallet app such as Phantom, Solflare or Backpack via a signing link, another signing wallet, or a local keypair) and p0_submit can send them.
 metadata:
   version: "0.4.0"
 ---
@@ -35,8 +35,9 @@ and read the docs: `p0_search_docs`, `p0_get_doc`).
    then build the next. A wallet with no account creates one first.
 5. Sign every transaction with the user's wallet, exactly as returned, right
    away, then send them with `p0_submit` (or yourself, per the `submit` field).
-   If you can't sign for the wallet (the user holds it in Phantom or another
-   browser wallet), give the user the build's `sign_url` instead.
+   If you can't sign for the wallet (the user holds it in their own wallet app,
+   such as Phantom, Solflare or Backpack), give the user the build's `sign_url`
+   instead.
 6. Re-read positions and report signatures as `https://solscan.io/tx/<signature>`.
 
 ## Connecting
@@ -57,7 +58,7 @@ another wallet MCP that can sign Solana transactions).
 
 | MCP tool | REST | Purpose |
 | --- | --- | --- |
-| `p0_get_started` | `GET /v1/get-started` | Onboarding for newcomers: wallet options (PayBox, Phantom) with setup steps, funding, first-deposit steps, live starter rates |
+| `p0_get_started` | `GET /v1/get-started` | Onboarding for newcomers: wallet options (PayBox, or the user's own Solana wallet) with setup steps, funding, first-deposit steps, live starter rates |
 | `p0_get_banks` | `GET /v1/banks` | Banks with rates, sizes, weights, e-mode, borrow premium. Filters: `symbol`, `venue`, `mint` |
 | `p0_get_strategies` | `GET /v1/strategies` | Ranked loop / rate-arbitrage strategies |
 | `p0_get_wallet` | `GET /v1/wallet/{address}` | Token holdings with USD values |
@@ -65,13 +66,14 @@ another wallet MCP that can sign Solana transactions).
 | `p0_get_health` | `GET /v1/health/{account}` | Light health check |
 | `p0_get_activity` | `GET /v1/activity/{authority}` | Recent actions |
 | `p0_search_docs` / `p0_get_doc` | | Search and read the protocol docs |
-| `p0_create_account` | `POST /v1/tx/create-account` | New marginfi account |
+| `p0_create_account` | `POST /v1/tx/create-account` | New Project 0 account |
 | `p0_deposit` / `p0_withdraw` | `POST /v1/tx/deposit` / `withdraw` | Deposit into an existing account / withdraw |
 | `p0_borrow` / `p0_repay` | `POST /v1/tx/borrow` / `repay` | Borrow (capped by guardrails) / repay |
 | `p0_loop` | `POST /v1/tx/loop` | Open or increase a leveraged position in one flash-loan tx |
 | `p0_close_position` | `POST /v1/tx/close-position` | Unwind a position: repay debt with collateral in one flash-loan tx |
 | `p0_swap_collateral` | `POST /v1/tx/swap-collateral` | Move collateral to another asset or venue in one flash-loan tx |
 | `p0_swap_debt` | `POST /v1/tx/swap-debt` | Move debt to another asset in one flash-loan tx |
+| `p0_swap` | `POST /v1/tx/swap` | Swap one wallet token for another (best Jupiter / Titan route), e.g. into a strategy's supply token; no account needed |
 | `p0_submit` | `POST /v1/tx/submit` | Send a signed build and report how each transaction landed |
 | | `POST /v1/tx/simulate` | Re-simulate a bundle and get post-action health |
 
@@ -108,10 +110,12 @@ at all.
   4. Fund the wallet with the tokens to use plus about 0.05 SOL for network
      fees and the one-time account setup.
   Then resolve it with `list_credentials` as above.
-- **Use your own wallet: Phantom.** Install the app or browser extension from
-  `phantom.com`, create a wallet, write the recovery phrase down offline
-  (never share it, not even with an agent), and fund it the same way. Each
-  action is approved on a Project 0 signing page (Signer D).
+- **Use your own wallet: any Solana wallet.** Already have one (Phantom,
+  Solflare, Backpack, ...)? Use it. Otherwise install one, e.g. from
+  `phantom.com`, `solflare.com` or `backpack.app`, create a wallet, write the
+  recovery phrase down offline (never share it, not even with an agent), and
+  fund it the same way. Each action is approved on a Project 0 signing page
+  (Signer D).
 
 `p0_get_wallet` / `GET /v1/wallet/{address}` returns `tokens[]` with `mint`,
 `symbol`, `amount_ui`, `price_usd`, `value_usd`, `is_native_sol`. Match token
@@ -160,6 +164,10 @@ non-zero.
 - Moving a position: `p0_swap_collateral` (e.g. JitoSOL to another LST, or USDC
   from P0 to Kamino) or `p0_swap_debt` (e.g. USDC debt to SOL debt) instead of
   close, withdraw, swap and redeposit.
+- Holding the wrong token: if the wallet holds a different token than the bank
+  or strategy supplies (e.g. USDT for a USDC strategy), swap it first with
+  `p0_swap`, then deposit or loop with the new token. One action per build:
+  the swap lands before the deposit is built.
 - Venue rules:
   - Only `P0` banks can be borrowed from.
   - `p0_deposit`, `p0_withdraw`, `p0_borrow` and `p0_repay` work on `P0` banks
@@ -169,7 +177,8 @@ non-zero.
     back to the `P0` bank for the same mint, then `p0_withdraw`).
   - An account holds at most 4 Kamino / JupLend / native-stake positions
     (`POSITION_LIMIT_EXCEEDED`).
-  - Tokens with no bank must be swapped elsewhere first.
+  - `p0_swap` swaps between tokens that both have a bank (any venue); tokens
+    with no bank must be swapped elsewhere first.
 
 State the plan with specific amounts, banks, rates (including any borrow
 premium) and the expected health after the action. Wait for approval.
@@ -227,11 +236,23 @@ Position swap:
 `from_bank` must hold the position on that side; pass `amount` (at most the
 position) or `swap_all: true`.
 
+Wallet swap (`p0_swap`, no account):
+
+```json
+{ "authority": "<wallet>", "from_mint": "<mint held>", "to_mint": "<mint wanted>", "amount": 25 }
+```
+
+Both mints need a bank (`p0_get_banks` `mint`); native SOL is
+`So11111111111111111111111111111111111111112` and is wrapped / unwrapped
+automatically, keeping 0.01 SOL for fees. `amount` is how much to sell (exact
+input). Optional `slippage_bps` (default 100, max 500) and
+`max_price_impact_bps` (default 200).
+
 Every builder returns:
 
 ```json
 {
-  "account": "<marginfi account, save it>",
+  "account": "<Project 0 account, save it>",
   "transactions": [ { "base64": "<unsigned v0 tx>", "type": "CRANK" }, { "base64": "…", "type": "DEPOSIT" } ],
   "action_tx_index": 1,
   "submit": "sequential",
@@ -250,8 +271,11 @@ Every builder returns:
 The transactions were simulated before being returned. Before signing, show
 the user `simulation.post_health`, every `warnings` entry, and
 `simulation.borrow_premium` when it is not null (the premium on the account's
-debt before and after). Flash-loan builds also return `swap`: show both
-tokens, the amounts and `swap.worst_case_loss_pct`.
+debt before and after). Flash-loan builds and `p0_swap` also return `swap`:
+show both tokens, the expected (`out_amount_ui`) and guaranteed
+(`min_out_amount_ui`) amounts and `swap.worst_case_loss_pct`; a
+`swap.platform_fee_bps` is already reflected in them. For `p0_swap`, `account`
+and `simulation.post_health` are null (no account is involved).
 
 The blockhash is valid for ~150 blocks, about **30 seconds** at current
 Solana block times (measured 2026-10-23), so the clock starts at the build.
@@ -302,7 +326,7 @@ Same as A: sign each `transactions[i].base64` with the `authority` wallet,
 then pass the signed base64 strings to `p0_submit` in the same order. Wallets
 may add compute-budget and Lighthouse guard instructions while signing (Phantom
 does); `p0_submit` accepts those. Any other change (edited, added or removed
-instructions) returns `SUBMIT_REJECTED`.
+instructions, or different address lookup tables) returns `SUBMIT_REJECTED`.
 
 #### Signer C: local keypair (code-capable runtimes)
 
@@ -333,14 +357,17 @@ console.log(JSON.stringify(await res.json(), null, 2));
 The recipe needs `WALLET_KEYPAIR` (path to the keypair JSON). Ask the user if
 it is not set. Never invent it, never print the secret key.
 
-#### Signer D: the user's browser wallet (Phantom, Solflare, Backpack)
+#### Signer D: the user's own wallet (Phantom, Solflare, Backpack, ...)
 
 When you can't sign for the wallet, give the user the build's `sign_url`. It
 opens a Project 0 page that rebuilds the same action fresh, shows the preview
-(health before and after, warnings), has the user's wallet sign and submits it
-through the relay. The link is valid ~15 minutes, unlike the transactions, and
-only the `authority` wallet can sign on it. On mobile, the page offers to open
-in Phantom's in-app browser. Afterwards, re-read `p0_get_positions` to confirm.
+(health before and after, swap amounts and costs, warnings), has the user's
+wallet sign and submits it through the relay. The page connects any Solana
+wallet (and Reown email / social wallets). The link is valid ~15 minutes,
+unlike the transactions, and only the `authority` wallet can sign on it. On
+mobile, the page offers to open in Phantom's or Solflare's in-app browser.
+Afterwards, re-read `p0_get_positions` (or `p0_get_wallet` after a swap) to
+confirm.
 `sign_url` is null when the deployment doesn't serve signing links.
 
 #### If `submit_token` is null
@@ -391,8 +418,8 @@ health status and health factor, plus the Solscan links.
   `LEVERAGE_EXCEEDED.details.max_leverage`); retry with a smaller amount.
 - If a build fails with `SIMULATION_FAILED`, read `details` and do not blindly
   retry. After a `failed` submit, retry at most once with a fresh build.
-- Loops and position swaps route through Jupiter and Titan with the service's
-  keys. To use the user's own keys, send them as HTTP headers
+- Loops, position swaps and wallet swaps route through Jupiter and Titan with
+  the service's keys. To use the user's own keys, send them as HTTP headers
   `x-jupiter-api-key` / `x-titan-api-key` on the MCP connection or REST
   request. Never put keys in tool arguments or chat.
 
@@ -405,9 +432,10 @@ The message is prescriptive; follow it.
 | --- | --- |
 | `ACCOUNT_AMBIGUOUS` | Pass `account` from `details.accounts` |
 | `ACCOUNT_NOT_FOUND` | Create one with `p0_create_account`, sign and submit it, then retry with that `account` |
-| `BANK_NOT_FOUND` | Use a bank `address` from `p0_get_banks`; single-leg actions need a `P0` bank |
+| `BANK_NOT_FOUND` | Use a bank `address` from `p0_get_banks`; single-leg actions need a `P0` bank; `p0_swap` mints must belong to a bank |
 | `INVALID_ADDRESS` | Fix the input named in the message (also: opposite-side position, isolated-tier borrow rules) |
 | `INSUFFICIENT_COLLATERAL` | Amount above the position or `max_withdraw`, or the SOL gas reserve; check positions |
+| `INSUFFICIENT_BALANCE` | `p0_swap` would sell more than the wallet holds (or dip into the 0.01 SOL reserve); retry at or below `details.max_amount` |
 | `BORROW_LIMIT_EXCEEDED` / `LEVERAGE_EXCEEDED` | Retry at or below the cap in `details` |
 | `POSITION_LIMIT_EXCEEDED` | The account already holds 4 Kamino / JupLend / native-stake positions; close one or use a fresh account |
 | `PRICE_IMPACT_TOO_HIGH` | Reduce the amount, pick a more liquid pair, or raise `max_price_impact_bps` with the user's consent |
@@ -415,9 +443,9 @@ The message is prescriptive; follow it.
 | `BRIDGE_CONFLICT` | Follow the message (fresh account, or close the conflicting position) |
 | `SIMULATION_FAILED` | The tx would fail on-chain; `details.cause` says why |
 | `ORACLE_CRANK_FAILED` | An oracle couldn't be refreshed; retry shortly |
-| `SUBMIT_REJECTED` | The signed transactions don't match the build: sign every one, in order, from the same response, changed only by wallet compute-budget / guard instructions |
+| `SUBMIT_REJECTED` | The signed transactions don't match the build: sign every one, in order, from the same response, changed only by wallet compute-budget / guard instructions (same lookup tables) |
 | `TX_EXPIRED` | Nothing landed and the blockhash expired; build again and sign promptly |
-| `UPSTREAM_ERROR` | A data source or the RPC is down. On `p0_submit`, nothing was decided: retry with the same inputs, don't rebuild |
+| `UPSTREAM_ERROR` | A data source or the RPC is down (including reading the build's lookup tables). On `p0_submit`, nothing was decided: retry with the same inputs, don't rebuild |
 | `RATE_LIMITED` | Wait `Retry-After` / `details.retry_after_s` seconds |
 
 ## Health reference
