@@ -57,6 +57,7 @@ another wallet MCP that can sign Solana transactions).
 
 | MCP tool | REST | Purpose |
 | --- | --- | --- |
+| `p0_get_started` | `GET /v1/get-started` | Onboarding for newcomers: wallet options (PayBox, Phantom) with setup steps, funding, first-deposit steps, live starter rates |
 | `p0_get_banks` | `GET /v1/banks` | Banks with rates, sizes, weights, e-mode, borrow premium. Filters: `symbol`, `venue`, `mint` |
 | `p0_get_strategies` | `GET /v1/strategies` | Ranked loop / rate-arbitrage strategies |
 | `p0_get_wallet` | `GET /v1/wallet/{address}` | Token holdings with USD values |
@@ -91,8 +92,11 @@ Never guess an address.
 
 #### No wallet yet
 
-Offer two ways in plain words, let the user pick, and go one step at a time
-(wait for "done" before the next). A read-only look needs no wallet at all.
+Call `p0_get_started`: it returns both wallet options with their setup steps
+and live starter rates (and shows a welcome panel in clients that render MCP
+Apps). Offer the two ways in plain words, let the user pick, and go one step
+at a time (wait for "done" before the next). A read-only look needs no wallet
+at all.
 
 - **Let Claude act for you: PayBox by MoonPay.** A wallet you can use here,
   with a passkey approval for each transaction, without leaving the chat.
