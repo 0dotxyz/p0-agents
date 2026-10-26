@@ -1,8 +1,8 @@
 ---
 name: project0
-description: Use for Project 0 (P0), the DeFi prime broker on Solana. Yield discovery, deposits, borrows, repayments, withdrawals, leveraged loops (strategies), position swaps, and account health, through the hosted MCP server at ai.0.xyz or its REST API. Transactions are returned unsigned; the user's wallet signs (PayBox, another signing wallet, or a local keypair) and p0_submit can send them.
+description: Use for Project 0 (P0), the DeFi prime broker on Solana. Yield discovery, deposits, borrows, repayments, withdrawals, leveraged loops (strategies), position swaps, and account health, through the hosted MCP server at ai.0.xyz or its REST API. Transactions are returned unsigned; the user's wallet signs (PayBox, a browser wallet such as Phantom via a signing link, another signing wallet, or a local keypair) and p0_submit can send them.
 metadata:
-  version: "0.3.0"
+  version: "0.4.0"
 ---
 
 # Project 0 Skill
@@ -25,7 +25,8 @@ and read the docs: `p0_search_docs`, `p0_get_doc`).
 
 ## Operating model
 
-1. Resolve the user's wallet (PayBox `list_credentials`, or ask).
+1. Resolve the user's wallet (PayBox `list_credentials`, or ask). No wallet
+   yet? Walk the user through getting one (see "No wallet yet").
 2. Read with the MCP tools (or `GET /v1/*`) to plan.
 3. Present a concrete plan with numbers. Wait for the user's approval before
    any state-changing action.
@@ -34,6 +35,8 @@ and read the docs: `p0_search_docs`, `p0_get_doc`).
    then build the next. A wallet with no account creates one first.
 5. Sign every transaction with the user's wallet, exactly as returned, right
    away, then send them with `p0_submit` (or yourself, per the `submit` field).
+   If you can't sign for the wallet (the user holds it in Phantom or another
+   browser wallet), give the user the build's `sign_url` instead.
 6. Re-read positions and report signatures as `https://solscan.io/tx/<signature>`.
 
 ## Connecting
@@ -85,6 +88,26 @@ base58. REST bodies use the same field names as the MCP tool inputs.
   (`WALLET_ADDRESS`, or derive it from `WALLET_KEYPAIR`).
 
 Never guess an address.
+
+#### No wallet yet
+
+Offer two ways in plain words, let the user pick, and go one step at a time
+(wait for "done" before the next). A read-only look needs no wallet at all.
+
+- **Let Claude act for you: PayBox by MoonPay.** A wallet you can use here,
+  with a passkey approval for each transaction, without leaving the chat.
+  1. In Claude, open Customize → Connectors and add a custom connector with
+     the URL `https://api.paybox.sh/mcp`.
+  2. PayBox opens: sign in with email and a passkey, create or pick a Solana
+     wallet, and approve access for it.
+  3. Turn the PayBox connector on for the chat.
+  4. Fund the wallet with the tokens to use plus about 0.05 SOL for network
+     fees and the one-time account setup.
+  Then resolve it with `list_credentials` as above.
+- **Use your own wallet: Phantom.** Install the app or browser extension from
+  `phantom.com`, create a wallet, write the recovery phrase down offline
+  (never share it, not even with an agent), and fund it the same way. Each
+  action is approved on a Project 0 signing page (Signer D).
 
 `p0_get_wallet` / `GET /v1/wallet/{address}` returns `tokens[]` with `mint`,
 `symbol`, `amount_ui`, `price_usd`, `value_usd`, `is_native_sol`. Match token
@@ -208,7 +231,8 @@ Every builder returns:
   "transactions": [ { "base64": "<unsigned v0 tx>", "type": "CRANK" }, { "base64": "…", "type": "DEPOSIT" } ],
   "action_tx_index": 1,
   "submit": "sequential",
-  "submit_token": "v1.sequential.…",
+  "submit_token": "v2.sequential.…",
+  "sign_url": "https://ai.0.xyz/sign?i=…",
   "blockhash": { "value": "…", "last_valid_block_height": 0 },
   "simulation": {
     "success": true,
@@ -271,9 +295,10 @@ before building (e.g. sign a harmless message), not inside the window.
 #### Signer B: any other wallet that returns signed transactions
 
 Same as A: sign each `transactions[i].base64` with the `authority` wallet,
-then pass the signed base64 strings to `p0_submit` in the same order. A
-wallet that changes transactions while signing (adds instructions or
-priority fees) can't be used with `p0_submit`; it returns `SUBMIT_REJECTED`.
+then pass the signed base64 strings to `p0_submit` in the same order. Wallets
+may add compute-budget and Lighthouse guard instructions while signing (Phantom
+does); `p0_submit` accepts those. Any other change (edited, added or removed
+instructions) returns `SUBMIT_REJECTED`.
 
 #### Signer C: local keypair (code-capable runtimes)
 
@@ -303,6 +328,16 @@ console.log(JSON.stringify(await res.json(), null, 2));
 
 The recipe needs `WALLET_KEYPAIR` (path to the keypair JSON). Ask the user if
 it is not set. Never invent it, never print the secret key.
+
+#### Signer D: the user's browser wallet (Phantom, Solflare, Backpack)
+
+When you can't sign for the wallet, give the user the build's `sign_url`. It
+opens a Project 0 page that rebuilds the same action fresh, shows the preview
+(health before and after, warnings), has the user's wallet sign and submits it
+through the relay. The link is valid ~15 minutes, unlike the transactions, and
+only the `authority` wallet can sign on it. On mobile, the page offers to open
+in Phantom's in-app browser. Afterwards, re-read `p0_get_positions` to confirm.
+`sign_url` is null when the deployment doesn't serve signing links.
 
 #### If `submit_token` is null
 
@@ -376,7 +411,7 @@ The message is prescriptive; follow it.
 | `BRIDGE_CONFLICT` | Follow the message (fresh account, or close the conflicting position) |
 | `SIMULATION_FAILED` | The tx would fail on-chain; `details.cause` says why |
 | `ORACLE_CRANK_FAILED` | An oracle couldn't be refreshed; retry shortly |
-| `SUBMIT_REJECTED` | The signed transactions don't match the build: sign every one, unmodified, in order, from the same response |
+| `SUBMIT_REJECTED` | The signed transactions don't match the build: sign every one, in order, from the same response, changed only by wallet compute-budget / guard instructions |
 | `TX_EXPIRED` | Nothing landed and the blockhash expired; build again and sign promptly |
 | `UPSTREAM_ERROR` | A data source or the RPC is down. On `p0_submit`, nothing was decided: retry with the same inputs, don't rebuild |
 | `RATE_LIMITED` | Wait `Retry-After` / `details.retry_after_s` seconds |
