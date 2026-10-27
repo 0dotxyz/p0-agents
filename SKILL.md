@@ -2,7 +2,7 @@
 name: project0
 description: Use for Project 0 (P0), the DeFi prime broker on Solana. Yield discovery, deposits, borrows, repayments, withdrawals, leveraged loops (strategies), position swaps, wallet token swaps, and account health, through the hosted MCP server at ai.0.xyz or its REST API. Transactions are returned unsigned; the user's wallet signs (PayBox, their own wallet app such as Phantom, Solflare or Backpack via a signing link, another signing wallet, or a local keypair) and p0_submit can send them.
 metadata:
-  version: "0.4.0"
+  version: "0.5.0"
 ---
 
 # Project 0 Skill
@@ -96,7 +96,8 @@ Never guess an address.
 
 Call `p0_get_started`: it returns both wallet options with their setup steps
 and live starter rates (and shows a welcome panel in clients that render MCP
-Apps). Offer the two ways in plain words, let the user pick, and go one step
+Apps; `p0_get_strategies`, `p0_get_wallet` and `p0_get_positions` show panels
+there too, with buttons that post the user's next request into the chat). Offer the two ways in plain words, let the user pick, and go one step
 at a time (wait for "done" before the next). A read-only look needs no wallet
 at all.
 
@@ -119,7 +120,21 @@ at all.
 
 `p0_get_wallet` / `GET /v1/wallet/{address}` returns `tokens[]` with `mint`,
 `symbol`, `amount_ui`, `price_usd`, `value_usd`, `is_native_sol`. Match token
-`mint` to bank `mint`.
+`mint` to bank `mint`. Each token also carries:
+
+- `best_deposit` (`bank`, `total_deposit_apy_pct`): the best Project 0 bank
+  open for a deposit of that token right now. Pass it as `bank` to
+  `p0_deposit`. `null` when none is open: offer `p0_swap` into a token that
+  has one.
+- `best_strategy` (`supply_bank`, `borrow_bank`, `borrow_symbol`,
+  `max_leverage`, `net_apy_at_max_leverage_pct`): the strategy supplying that
+  token with the best net APY at max leverage, only when it beats
+  `best_deposit`. It's a leveraged loop (`p0_loop` with `deposit_bank` =
+  `supply_bank`, `borrow_bank`): explain the liquidation risk and suggest a
+  leverage below the max. `null` when no strategy beats the deposit.
+
+Both are `null` when rates are unavailable; that doesn't mean the token can't
+earn. For "what can I do with what I hold", start here.
 
 ### 2. Read protocol data
 
