@@ -325,8 +325,9 @@ before building (e.g. sign a harmless message), not inside the window.
 Same as A: sign each `transactions[i].base64` with the `authority` wallet,
 then pass the signed base64 strings to `p0_submit` in the same order. Wallets
 may add compute-budget and Lighthouse guard instructions while signing (Phantom
-does); `p0_submit` accepts those. Any other change (edited, added or removed
-instructions, or different address lookup tables) returns `SUBMIT_REJECTED`.
+does), including a lookup table those guards use; `p0_submit` accepts those.
+Any other change (edited, added or removed instructions, or a lookup table of
+the build dropped or replaced) returns `SUBMIT_REJECTED`.
 
 #### Signer C: local keypair (code-capable runtimes)
 
@@ -443,7 +444,7 @@ The message is prescriptive; follow it.
 | `BRIDGE_CONFLICT` | Follow the message (fresh account, or close the conflicting position) |
 | `SIMULATION_FAILED` | The tx would fail on-chain; `details.cause` says why |
 | `ORACLE_CRANK_FAILED` | An oracle couldn't be refreshed; retry shortly |
-| `SUBMIT_REJECTED` | The signed transactions don't match the build: sign every one, in order, from the same response, changed only by wallet compute-budget / guard instructions (same lookup tables) |
+| `SUBMIT_REJECTED` | The signed transactions don't match the build: sign every one, in order, from the same response, changed only by wallet compute-budget / guard instructions (the build's lookup tables kept) |
 | `TX_EXPIRED` | Nothing landed and the blockhash expired; build again and sign promptly |
 | `UPSTREAM_ERROR` | A data source or the RPC is down (including reading the build's lookup tables). On `p0_submit`, nothing was decided: retry with the same inputs, don't rebuild |
 | `RATE_LIMITED` | Wait `Retry-After` / `details.retry_after_s` seconds |
